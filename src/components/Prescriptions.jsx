@@ -1,0 +1,719 @@
+  import { useState, useEffect, useMemo, useCallback } from "react";
+  import { Modal, Toast, Ic, PATHS } from "./Styles";
+  import { fDate, fCur } from "../data/MasterData";
+import { useNavigate, useLocation } from "react-router-dom";
+  import API from "../api";
+  import NewOrderForm from "./NewOrderForm";
+
+  /* ─── TOKENS (matches Dashboard) ───────────────────────────────── */
+  const S = {
+    bg: "#F0F4F8", card: "#FFFFFF",
+    ink: "#0F172A", ink2: "#334155", muted: "#64748B",
+    border: "#E2E8F0",
+    brand: "#06549d", brandLt: "#EFF6FF",
+    green: "#059669",  greenBg: "#ECFDF5",
+    amber: "#D97706",  amberBg: "#FFFBEB",
+    red: "#DC2626",    redBg: "#FEF2F2",
+    purple: "#7C3AED", purpleBg: "#F5F3FF",
+    blue: "#2563EB",   blueBg: "#EFF6FF",
+  };
+  const card = (x = {}) => ({
+    background: S.card, borderRadius: 12,
+    border: `1px solid ${S.border}`,
+    boxShadow: "0 1px 4px rgba(15,23,42,.05)", ...x,
+  });
+
+  /* ─── HELPERS ───────────────────────────────────────────────────── */
+  const now = () => new Date();
+  const daysLeft = (expiry) => Math.ceil((new Date(expiry) - now()) / 86400000);
+  const isExpired = (expiry) => expiry && new Date(expiry) <= now();
+  const isExpiring = (expiry) => {
+    if (!expiry) return false;
+    const d = daysLeft(expiry);
+    return d > 0 && d <= 7;
+  };
+  const isActive = (expiry) => expiry && new Date(expiry) > now() && !isExpiring(expiry);
+
+  const expiryStyle = (expiry) => {
+    if (!expiry) return { color: S.muted, bg: "transparent" };
+    if (isExpired(expiry))  return { color: S.red,   bg: S.redBg   };
+    if (isExpiring(expiry)) return { color: S.amber, bg: S.amberBg };
+    return { color: S.green, bg: S.greenBg };
+  };
+
+  /* ─── Transform an order object into a prescription row ────────── */
+const transformOrder = (o) => {
+  const items = o.items || [];
+
+  // ✅ 1. Calculate subtotal from items
+  const calculatedSubtotal = items.reduce(
+    (sum, m) => sum + (m.subtotal || 0),
+    0
+  );
+
+  // ✅ 2. Get max duration
+  const maxDuration = Math.max(
+    ...items.map((m) => m.duration || 0),
+    0
+  );
+
+  // ✅ 3. Calculate expiry from start + duration
+  let calculatedExpiry = null;
+  if (o.prescription?.start && maxDuration > 0) {
+    const start = new Date(o.prescription.start);
+    start.setDate(start.getDate() + maxDuration);
+    calculatedExpiry = start;
+  }
+
+  return {
+    id: o._id,
+    rxId: o.prescription?.rxId || "—",
+    pName: o.patientDetails?.name || "—",
+    patientId: o.patientDetails?._id,
+    doctor: o.prescription?.doctor || "—",
+
+    start: o.prescription?.start,
+
+    // ✅ FIXED
+    expiry: calculatedExpiry,
+
+    // ✅ FIXED
+    subtotal: calculatedSubtotal,
+
+    gst: o.prescription?.gst || 0,
+    discount: o.prescription?.discount || 0,
+    total: o.totalAmount || 0,
+
+    payStatus: o.paymentStatus || "Unpaid",
+    ordStatus: o.orderStatus || "Created",
+    orderId: o.orderId,
+    phone: o.patientDetails?.primaryPhone || o.patientDetails?.phone,
+    address: o.addressDetails?.fullAddress,
+
+    // meds unchanged
+    meds: items.map((m) => ({
+      mName: m.name || "—",
+      dur: m.duration,
+      freq: m.freq,
+      qty: m.qty,
+      price: m.price,
+      sub: m.subtotal,
+    })),
+  };
+};
+
+  /* ─── Map filter tab value to orderStatus query param ──────────── */
+  const filterToOrderStatus = (f) => {
+    if (f === "All") return "";
+    return f;                        // "Active", "Expiring", "Expired" sent as-is
+  };
+
+  /* ─── COMPONENT ─────────────────────────────────────────────────── */
+  export const RxView = ({ role }) => {
+    const [rx, setRx] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const navigate = useNavigate();
+    const location = useLocation();
+    /* debounced search */
+    const [searchInput, setSearchInput] = useState("");
+    const [search, setSearch] = useState("");
+    useEffect(() => {
+      const t = setTimeout(() => setSearch(searchInput), 400);
+      return () => clearTimeout(t);
+    }, [searchInput]);
+
+    const [filter, setFilter] = useState(() => {
+     return location.state?.filter || "All";
+    });
+
+    const highlightRxId = location.state?.rxId;
+
+    useEffect(() => {
+    if (location.state?.filter) {
+    setFilter(location.state.filter);
+    }
+    }, [location.state]);
+
+    const [viewRx, setViewRx] = useState(null);
+    const [showNewOrder, setShowNewOrder] = useState(false);
+    const [toast, setToast] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const rowsPerPage = 8;
+
+
+    /* server pagination info */
+    const [pagination, setPagination] = useState({ page: 1, limit: rowsPerPage, total: 0, totalPages: 1 });
+
+    const toast_ = (m, t = "ok") => { setToast({ m, t }); setTimeout(() => setToast(null), 3500); };
+
+    /* ── FETCH (server-side pagination + filters) ── */
+    const fetchPrescriptions = useCallback(async () => {
+      try {
+        setLoading(true);
+        const params = {
+          page: currentPage,
+          limit: rowsPerPage,
+        };
+        if (search) params.search = search;
+        // const status = filterToOrderStatus(filter);
+        // if (status) params.orderStatus = status;
+
+        
+
+        const res = await API.get("/orders", { params });
+        const orders = res.data.data || [];
+
+// ✅ Step 1: transform
+const allRx = orders.map(transformOrder);
+
+// ✅ Step 2: apply filter
+let filteredRx = allRx;
+
+if (filter === "Active") {
+  filteredRx = allRx.filter((r) => isActive(r.expiry));
+}
+
+if (filter === "Expiring") {
+  filteredRx = allRx.filter((r) => isExpiring(r.expiry));
+}
+
+if (filter === "Expired") {
+  filteredRx = allRx.filter((r) => isExpired(r.expiry));
+}
+
+// ✅ Step 3: set data
+setRx(filteredRx);
+
+// 🔥 Auto open Rx when coming from dashboard
+if (highlightRxId) {
+  const found = filteredRx.find(r => r.rxId === highlightRxId);
+  if (found) {
+    setViewRx(found);
+  }
+}
+
+        if (res.data.pagination) {
+          setPagination(res.data.pagination);
+        } else {
+          // fallback if the backend doesn't return pagination yet
+          setPagination({ page: currentPage, limit: rowsPerPage, total: orders.length, totalPages: 1 });
+        }
+      } catch { toast_("Failed to load prescriptions", "err"); }
+      finally { setLoading(false); }
+    }, [currentPage, search, filter]);
+
+    /* re-fetch whenever page or filters change */
+    useEffect(() => { fetchPrescriptions(); }, [fetchPrescriptions]);
+
+    /* reset to page 1 when search or filter changes */
+    useEffect(() => { setCurrentPage(1); }, [search, filter]);
+
+    /* ── NEW ORDER ── */
+    const handleSaveOrder = async (data) => {
+      await API.post("/prescriptions", data);
+      toast_("Order created successfully");
+      setShowNewOrder(false);
+      fetchPrescriptions();
+    };
+
+    /* (Order status is read-only — sourced from API/Shiprocket) */
+
+    /* ── STATS ── (computed from current page; total from server) */
+    const stats = useMemo(() => ({
+      total:    pagination.total,
+      active:   rx.filter(r => isActive(r.expiry)).length,
+      expiring: rx.filter(r => isExpiring(r.expiry)).length,
+      expired:  rx.filter(r => isExpired(r.expiry)).length,
+    }), [rx, pagination.total]);
+
+    /* pagination values from server */
+    const totalPages = pagination.totalPages;
+
+    /* ── EXPORT helper: fetch ALL records with limit=0 ── */
+    const fetchAllForExport = async () => {
+      try {
+        const params = { limit: 0 };
+        if (search) params.search = search;
+        const status = filterToOrderStatus(filter);
+        if (status) params.orderStatus = status;
+
+        const res = await API.get("/orders", { params });
+        const orders = res.data.data || [];
+        return orders.map(transformOrder);
+      } catch {
+        toast_("Failed to export prescriptions", "err");
+        return [];
+      }
+    };
+
+    /* ── RENDER ── */
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: "'DM Sans', sans-serif" }}>
+
+        {toast && <Toast msg={toast.m} type={toast.t} onClose={() => setToast(null)} />}
+
+        {/* ── HEADER ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: S.ink, letterSpacing: -0.4 }}>
+              Prescription Management
+            </h1>
+            <p style={{ fontSize: 13, color: S.muted, marginTop: 3 }}>
+              Track all prescriptions, expiry status, and linked orders
+            </p>
+          </div>
+          <button onClick={() => setShowNewOrder(true)} style={primaryBtn}>
+            <Ic d={PATHS.plus} s={14} c="#fff" /> New Order
+          </button>
+        </div>
+
+        {/* ── STATS STRIP ── */}
+        <div style={{ ...card(), display: "grid", gridTemplateColumns: "repeat(4,1fr)", overflow: "hidden" }}>
+          {[
+            { label: "Total Prescriptions", value: stats.total,    color: S.brand,  icon: PATHS.rx    },
+            { label: "Active",              value: stats.active,   color: S.green,  icon: PATHS.check  },
+            { label: "Expiring (≤ 7 days)", value: stats.expiring, color: S.amber,  icon: PATHS.clock  },
+            { label: "Expired",             value: stats.expired,  color: S.red,    icon: PATHS.alert  },
+          ].map((s, i, arr) => (
+            <div
+              key={s.label}
+              onClick={() => setFilter(i === 0 ? "All" : s.label.split(" ")[0])}
+              style={{
+                padding: "18px 22px",
+                borderRight: i < arr.length - 1 ? `1px solid ${S.border}` : "none",
+                cursor: "pointer",
+                transition: "background .12s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = S.bg}
+              onMouseLeave={e => e.currentTarget.style.background = S.card}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <div style={{ background: s.color + "15", borderRadius: 7, padding: 6, display: "flex" }}>
+                  <Ic d={s.icon} s={13} c={s.color} />
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: S.muted, textTransform: "uppercase", letterSpacing: 0.7 }}>
+                  {s.label}
+                </span>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: S.ink, letterSpacing: -0.8, lineHeight: 1 }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── FILTER TABS + SEARCH ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", gap: 4, background: "#fff", border: `1px solid ${S.border}`, borderRadius: 9, padding: 4 }}>
+            {["All", "Active", "Expiring", "Expired"].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                style={{
+                  padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                  background: filter === tab ? S.brand : "transparent",
+                  color: filter === tab ? "#fff" : S.muted,
+                  transition: "all .15s",
+                }}
+              >
+                {tab}
+                {tab === "Expiring" && stats.expiring > 0 && (
+                  <span style={{ marginLeft: 6, background: S.amber, color: "#fff", fontSize: 10, padding: "1px 5px", borderRadius: 99, fontWeight: 700 }}>
+                    {stats.expiring}
+                  </span>
+                )}
+                {tab === "Expired" && stats.expired > 0 && (
+                  <span style={{ marginLeft: 6, background: S.red, color: "#fff", fontSize: 10, padding: "1px 5px", borderRadius: 99, fontWeight: 700 }}>
+                    {stats.expired}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${S.border}`, borderRadius: 9, padding: "8px 14px", width: 300 }}>
+            <Ic d={PATHS.eye} s={14} c={S.muted} />
+            <input
+              placeholder="Search patient, Rx ID, doctor…"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              style={{ border: "none", outline: "none", fontSize: 13, color: S.ink, fontFamily: "'DM Sans', sans-serif", width: "100%", background: "transparent" }}
+            />
+          </div>
+        </div>
+
+        {/* ── TABLE ── */}
+        <div style={card({ overflow: "hidden" })}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: "center", color: S.muted, fontSize: 14 }}>Loading prescriptions…</div>
+          ) : rx.length === 0 ? (
+            <div style={{ padding: 48, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: S.ink }}>No prescriptions found</p>
+              <p style={{ fontSize: 13, color: S.muted, marginTop: 4 }}>Try adjusting your filter or search</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: S.bg, borderBottom: `2px solid ${S.border}` }}>
+                    {["Rx ID", "Patient", "Doctor", "Start", "Expiry", "Days Left", "Total", "Payment", "Order Status", "Actions"].map(h => (
+                      <th key={h} style={{ padding: "11px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: S.muted, textTransform: "uppercase", letterSpacing: 0.6, whiteSpace: "nowrap" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rx.map((r) => {
+                    const exp = expiryStyle(r.expiry);
+                    const dl = r.expiry ? daysLeft(r.expiry) : null;
+                    return (
+                      <tr key={r.id}
+                        style={{ borderBottom: `1px solid ${S.border}`, transition: "background .1s", background: isExpired(r.expiry) ? "#FFF8F8" : isExpiring(r.expiry) ? "#FFFDF0" : "transparent" }}
+                        onMouseEnter={e => !isExpired(r.expiry) && !isExpiring(r.expiry) && (e.currentTarget.style.background = "#F8FAFC")}
+                        onMouseLeave={e => e.currentTarget.style.background = isExpired(r.expiry) ? "#FFF8F8" : isExpiring(r.expiry) ? "#FFFDF0" : "transparent"}
+                      >
+                        <td style={{ padding: "12px 14px", fontWeight: 700, color: S.brand, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{r.rxId}</td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <span style={{ fontWeight: 600, color: S.blue, cursor: "pointer" }}
+                            onClick={() => navigate("/patients", { state: { patientId: r.patientId } })}>
+                            {r.pName}
+                          </span>
+                          {r.phone && <div style={{ fontSize: 11, color: S.muted, marginTop: 1 }}>{r.phone}</div>}
+                        </td>
+                        <td style={{ padding: "12px 14px", color: S.ink2 }}>{r.doctor}</td>
+                        <td style={{ padding: "12px 14px", color: S.muted, whiteSpace: "nowrap" }}>{fDate(r.start)}</td>
+                        <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: exp.color, background: exp.bg, padding: "3px 8px", borderRadius: 99 }}>
+                            {r.expiry ? fDate(r.expiry) : "—"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          {dl !== null ? (
+                            <span style={{ fontSize: 12, fontWeight: 700, color: dl <= 0 ? S.red : dl <= 7 ? S.amber : S.green }}>
+                              {dl <= 0 ? "Expired" : `${dl}d`}
+                            </span>
+                          ) : <span style={{ color: S.muted }}>—</span>}
+                        </td>
+                        <td style={{ padding: "12px 14px", fontWeight: 600, color: S.ink }}>{fCur(r.total)}</td>
+                        <td style={{ padding: "12px 14px" }}><StatusChip label={r.payStatus} /></td>
+                        <td style={{ padding: "12px 14px" }}><StatusChip label={r.ordStatus} /></td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <button onClick={() => setViewRx(r)} style={ghostBtn}>View</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* PAGINATION */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderTop: `1px solid ${S.border}` }}>
+              <span style={{ fontSize: 13, color: S.muted }}>
+                Showing {(currentPage - 1) * rowsPerPage + 1}–{Math.min(currentPage * rowsPerPage, pagination.total)} of {pagination.total}
+              </span>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} style={pageBtn(false)}>← Prev</button>
+                {[...Array(totalPages)].map((_, i) => (
+                  <button key={i} onClick={() => setCurrentPage(i + 1)} style={pageBtn(currentPage === i + 1)}>{i + 1}</button>
+                ))}
+                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} style={pageBtn(false)}>Next →</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── VIEW MODAL ── */}
+        {viewRx && (
+          <Modal
+            title={`Prescription — ${viewRx.rxId}`}
+            sub={`${viewRx.pName} · ${viewRx.doctor}`}
+            w={1000}
+            onClose={() => setViewRx(null)}
+            ch={<RxDetailView rx={viewRx} />}
+          />
+        )}
+
+        {/* ── NEW ORDER MODAL ── */}
+        {showNewOrder && (
+          <Modal title="Create New Order" sub="Select patient, add medicines, and place the order" w={980}
+            onClose={() => setShowNewOrder(false)}
+            ch={<NewOrderForm onSave={handleSaveOrder} onClose={() => setShowNewOrder(false)} />}
+          />
+        )}
+      </div>
+    );
+  };
+
+  /* ─── ORDER TRACKING PIPELINE ── */
+  const PIPELINE = [
+    { key: "Created",    label: "Created",    icon: PATHS.clock },
+    { key: "Processing", label: "Processing", icon: PATHS.rx },
+    { key: "Packed",     label: "Packed",     icon: PATHS.box },
+    { key: "Shipped",    label: "Shipped",    icon: PATHS.truck },
+    { key: "Delivered",  label: "Delivered",  icon: PATHS.check },
+  ];
+  const PIPELINE_COLORS = {
+    done:    { bg: "#059669", text: "#fff", line: "#059669" },
+    current: { bg: "#4F46E5", text: "#fff", line: "#4F46E5" },
+    pending: { bg: "#E2E8F0", text: "#94A3B8", line: "#E2E8F0" },
+  };
+
+  /* ─── STATUS CHIP CONFIG ── */
+  const STATUS_COLORS = {
+    Delivered:  { bg: "#ECFDF5", color: "#059669" },
+    Processing: { bg: "#EFF6FF", color: "#2563EB" },
+    Shipped:    { bg: "#F5F3FF", color: "#7C3AED" },
+    Packed:     { bg: "#F0FDFA", color: "#0D9488" },
+    Created:    { bg: "#F1F5F9", color: "#64748B" },
+    Paid:       { bg: "#ECFDF5", color: "#059669" },
+    Unpaid:     { bg: "#FEF2F2", color: "#DC2626" },
+    Pending:    { bg: "#FFFBEB", color: "#D97706" },
+    Failed:     { bg: "#FEF2F2", color: "#DC2626" },
+  };
+  const StatusChip = ({ label, size = "sm" }) => {
+    const c = STATUS_COLORS[label] || { bg: "#F1F5F9", color: "#64748B" };
+    const isSm = size === "sm";
+    return (
+      <span style={{
+        fontSize: isSm ? 11 : 12, fontWeight: 700, background: c.bg, color: c.color,
+        padding: isSm ? "3px 9px" : "5px 12px", borderRadius: 99, whiteSpace: "nowrap",
+        display: "inline-flex", alignItems: "center", gap: 5,
+      }}>
+        <span style={{ width: isSm ? 5 : 6, height: isSm ? 5 : 6, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+        {label}
+      </span>
+    );
+  };
+
+  /* ─── RX DETAIL VIEW ────────────────────────────────────────────── */
+  const RxDetailView = ({ rx }) => {
+    const exp = expiryStyle(rx.expiry);
+    const dl = rx.expiry ? daysLeft(rx.expiry) : null;
+    const daily = (freq) => (freq?.m || 0) + (freq?.a || 0) + (freq?.n || 0);
+    const curIdx = PIPELINE.findIndex(p => p.key === rx.ordStatus);
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+
+        {/* ── TOP: PATIENT CARD + STATUS BADGES ── */}
+        <div style={{
+          background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+          borderRadius: 14, padding: "20px 24px", color: "#fff",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* Avatar */}
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: "linear-gradient(135deg, #4F46E5, #7C3AED)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 17, fontWeight: 700, color: "#fff",
+                boxShadow: "0 4px 14px rgba(79,70,229,0.4)",
+              }}>
+                {rx.pName?.charAt(0)?.toUpperCase() || "?"}
+              </div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{rx.pName}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
+                  {rx.phone || "No phone"} · Dr. {rx.doctor?.replace("Dr. ", "")}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <StatusChip label={rx.ordStatus} size="md" />
+              <StatusChip label={rx.payStatus} size="md" />
+            </div>
+          </div>
+
+          {/* Info grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
+            {[
+              { label: "Order ID",   value: rx.orderId, mono: true },
+              { label: "Start Date", value: fDate(rx.start) },
+              { label: "Expiry",     value: rx.expiry ? fDate(rx.expiry) : "—", color: exp.color },
+              { label: "Days Left",  value: dl !== null ? (dl <= 0 ? "Expired" : `${dl} days`) : "—",
+                color: dl !== null ? (dl <= 0 ? "#F87171" : dl <= 7 ? "#FBBF24" : "#34D399") : "rgba(255,255,255,0.4)" },
+            ].map(f => (
+              <div key={f.label}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{f.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: f.color || "#fff", fontFamily: f.mono ? "'DM Mono',monospace" : "inherit" }}>{f.value}</div>
+              </div>
+            ))}
+          </div>
+          {rx.address && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 0.8 }}>Delivery Address</span>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginTop: 4 }}>{rx.address}</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── ORDER TRACKING TIMELINE ── */}
+        <div style={{
+          background: S.card, border: `1px solid ${S.border}`, borderRadius: 12,
+          padding: "20px 28px",
+          boxShadow: "0 1px 4px rgba(15,23,42,.05)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+            <Ic d={PATHS.truck} s={14} c={S.brand} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: S.ink, letterSpacing: -0.2 }}>Order Tracking</span>
+            <span style={{ fontSize: 11, color: S.muted, marginLeft: 4 }}>— Status synced from API</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-start" }}>
+            {PIPELINE.map((step, i) => {
+              const state = i < curIdx ? "done" : i === curIdx ? "current" : "pending";
+              const pc = PIPELINE_COLORS[state];
+              const isLast = i === PIPELINE.length - 1;
+              return (
+                <div key={step.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }}>
+                  {/* Connector line (before) */}
+                  {i > 0 && (
+                    <div style={{
+                      position: "absolute", top: 17, right: "50%", width: "100%", height: 3,
+                      background: i <= curIdx ? PIPELINE_COLORS.done.line : S.border,
+                      borderRadius: 2, zIndex: 0,
+                    }} />
+                  )}
+                  {/* Node */}
+                  <div style={{
+                    width: 34, height: 34, borderRadius: "50%",
+                    background: pc.bg, display: "flex", alignItems: "center", justifyContent: "center",
+                    position: "relative", zIndex: 1,
+                    boxShadow: state === "current" ? `0 0 0 4px ${pc.bg}30, 0 4px 12px ${pc.bg}40` : "none",
+                    transition: "all .3s",
+                  }}>
+                    <Ic d={step.icon} s={14} c={pc.text} />
+                  </div>
+                  {/* Label */}
+                  <span style={{
+                    fontSize: 11, fontWeight: state === "current" ? 700 : 600,
+                    color: state === "pending" ? S.muted : S.ink,
+                    marginTop: 8, textAlign: "center",
+                  }}>{step.label}</span>
+                  {state === "current" && (
+                    <span style={{ fontSize: 9, color: S.brand, fontWeight: 700, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>Current</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── MEDICINES TABLE ── */}
+        <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(15,23,42,.05)" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <Ic d={PATHS.rx} s={14} c={S.brand} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: S.ink }}>Prescribed Medicines</span>
+            <span style={{ fontSize: 11, color: S.muted, marginLeft: "auto" }}>{rx.meds.length} item{rx.meds.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: S.bg }}>
+                  {["Medicine", "Duration", "Morning", "Afternoon", "Night", "Daily", "Qty", "Unit Price", "Subtotal"].map(h => (
+                    <th key={h} style={{
+                      padding: "10px 14px", textAlign: h === "Medicine" ? "left" : "center",
+                      fontSize: 10, fontWeight: 700, color: S.muted, textTransform: "uppercase",
+                      letterSpacing: 0.5, borderBottom: `2px solid ${S.border}`,
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rx.meds.length === 0 ? (
+                  <tr><td colSpan={9} style={{ padding: 30, textAlign: "center", color: S.muted }}>No medicines found</td></tr>
+                ) : rx.meds.map((m, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
+                    <td style={{ padding: "12px 14px", fontWeight: 600, color: S.ink2 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 7, background: S.brandLt, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <Ic d={PATHS.rx} s={12} c={S.brand} />
+                        </div>
+                        {m.mName}
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 14px", textAlign: "center", color: S.muted }}>{m.dur}d</td>
+                    <td style={{ padding: "12px 14px", textAlign: "center" }}><FreqDot val={m.freq?.m} color={S.amber} /></td>
+                    <td style={{ padding: "12px 14px", textAlign: "center" }}><FreqDot val={m.freq?.a} color={S.blue} /></td>
+                    <td style={{ padding: "12px 14px", textAlign: "center" }}><FreqDot val={m.freq?.n} color={S.purple} /></td>
+                    <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 700, color: S.ink }}>{daily(m.freq)}</td>
+                    <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 600 }}>{m.qty}</td>
+                    <td style={{ padding: "12px 14px", textAlign: "center", color: S.ink2 }}>₹{m.price}</td>
+                    <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 700, color: S.green }}>₹{m.sub}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── BILLING SUMMARY ── */}
+        <div style={{
+          background: S.card, border: `1px solid ${S.border}`, borderRadius: 12,
+          padding: "18px 20px", boxShadow: "0 1px 4px rgba(15,23,42,.05)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <Ic d={PATHS.dollar} s={14} c={S.brand} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: S.ink }}>Billing Summary</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+            {[
+              { label: "Subtotal", value: fCur(rx.subtotal), color: S.ink },
+              { label: "GST (18%)", value: fCur(rx.gst), color: S.amber },
+              { label: "Discount", value: `− ${fCur(rx.discount)}`, color: S.green },
+              { label: "Grand Total", value: fCur(rx.total), color: S.brand, highlight: true },
+            ].map(b => (
+              <div key={b.label} style={{
+                background: b.highlight ? `${S.brand}08` : S.bg,
+                border: `1.5px solid ${b.highlight ? S.brand + "30" : S.border}`,
+                borderRadius: 10, padding: "14px 16px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 10, color: S.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{b.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: b.color, marginTop: 6, letterSpacing: -0.5 }}>{b.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ─── SMALL COMPONENTS ──────────────────────────────────────────── */
+  const FreqDot = ({ val, color }) => (
+    <span style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: 28, height: 28, borderRadius: "50%",
+      background: val > 0 ? color + "15" : "transparent",
+      color: val > 0 ? color : S.muted, fontWeight: 700, fontSize: 12,
+      border: val > 0 ? `1.5px solid ${color}25` : "1.5px solid transparent",
+    }}>
+      {val || 0}
+    </span>
+  );
+
+  /* ─── STYLES ────────────────────────────────────────────────────── */
+  const ghostBtn = {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "5px 12px", border: `1px solid ${S.border}`, borderRadius: 7,
+    background: "#fff", color: S.muted, fontSize: 12, fontWeight: 600,
+    cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+  };
+  const primaryBtn = {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "8px 18px", border: "none", borderRadius: 8,
+    background: S.brand, color: "#fff", fontSize: 13, fontWeight: 600,
+    cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+    boxShadow: "0 2px 8px rgba(6,84,157,.3)",
+  };
+  const pageBtn = (active) => ({
+    padding: "6px 11px", borderRadius: 6, border: `1px solid ${S.border}`,
+    background: active ? S.brand : "#fff", color: active ? "#fff" : S.ink2,
+    fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+  });
+
+  export default RxView;
