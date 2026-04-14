@@ -1,4 +1,6 @@
-  import { useState, useEffect, useMemo, useCallback } from "react";
+
+
+    import { useState, useEffect, useMemo, useCallback } from "react";
   import { Modal, Toast, Ic, PATHS } from "./Styles";
   import { fDate, fCur } from "../data/MasterData";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -373,16 +375,16 @@ const totalItems = pagination.total;
                     const dl = r.expiry ? daysLeft(r.expiry) : null;
                     return (
                       <tr key={r.id}
-                       onClick={() => navigate(`/prescriptions/${r.id}`)}
-                        style={{ borderBottom: `1px solid ${S.border}`, transition: "background .1s", background: isExpired(r.expiry) ? "#FFF8F8" : isExpiring(r.expiry) ? "#FFFDF0" : "transparent",  cursor: "pointer", }}
+                        style={{ borderBottom: `1px solid ${S.border}`, transition: "background .1s", background: isExpired(r.expiry) ? "#FFF8F8" : isExpiring(r.expiry) ? "#FFFDF0" : "transparent" }}
                         onMouseEnter={e => !isExpired(r.expiry) && !isExpiring(r.expiry) && (e.currentTarget.style.background = "#F8FAFC")}
                         onMouseLeave={e => e.currentTarget.style.background = isExpired(r.expiry) ? "#FFF8F8" : isExpiring(r.expiry) ? "#FFFDF0" : "transparent"}
                       >
                         <td style={{ padding: "12px 14px", fontWeight: 700, color: S.brand, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{r.rxId}</td>
                         <td style={{ padding: "12px 14px" }}>
-                          <span style={{ fontWeight: 600, color: S.ink }}>
-                          {r.pName}
-                        </span>
+                          <span style={{ fontWeight: 600, color: S.blue, cursor: "pointer" }}
+                            onClick={() => navigate("/patients", { state: { patientId: r.patientId } })}>
+                            {r.pName}
+                          </span>
                           {r.phone && <div style={{ fontSize: 11, color: S.muted, marginTop: 1 }}>{r.phone}</div>}
                         </td>
                         <td style={{ padding: "12px 14px", color: S.ink2 }}>{r.doctor}</td>
@@ -403,13 +405,7 @@ const totalItems = pagination.total;
                         <td style={{ padding: "12px 14px" }}><StatusChip label={r.payStatus} /></td>
                         <td style={{ padding: "12px 14px" }}><StatusChip label={r.ordStatus} /></td>
                         <td style={{ padding: "12px 14px" }}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();   // ✅ VERY IMPORTANT
-                              setViewRx(r);
-                            }}
-                            style={ghostBtn}
-                          >View</button>
+                          <button onClick={() => setViewRx(r)} style={ghostBtn}>View</button>
                         </td>
                       </tr>
                     );
@@ -777,3 +773,4 @@ const totalItems = pagination.total;
   });
 
   export default RxView;
+

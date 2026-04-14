@@ -16,6 +16,8 @@ import InvoiceView from "./components/InvoiceView";
 import ReportsView from "./components/ReportsView";
 import TicketsView from "./components/TicketsView";
 import Login from "./components/Login";
+import InventoryDetail from "./components/InventoryDetail";
+import PrescriptionDetail from "./components/PrescriptionDetail";
 
 /* ─── SIDEBAR ──────────────────────────────────────────────────────────── */
 const Sidebar = ({ currentRole, NAV }) => {
@@ -291,6 +293,8 @@ export default function App() {
               <Route path="/invoice/:id"   element={<InvoiceView />} />
               <Route path="/reports"       element={<ReportsView />} />
               <Route path="/tickets"      element={<TicketsView />} />
+              <Route path="/inventory/:id" element={<InventoryDetail />} />
+              <Route path="/prescriptions/:id" element={<PrescriptionDetail />} />
             </Routes>
           </div>
 

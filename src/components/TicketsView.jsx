@@ -24,7 +24,7 @@ const S = {
   r: 12, rSm: 8, rLg: 16,
 };
 
-const PER_PAGE = 10;
+const PER_PAGE = 7;
 
 const STATUS_CFG = {
   Open:          { color: S.blue,   bg: S.blueLt,   icon: PATHS.alert },

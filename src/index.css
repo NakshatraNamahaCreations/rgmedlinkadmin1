@@ -13,3 +13,11 @@ body {
   user-select: none;
 }
 
+.custom-date-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+}

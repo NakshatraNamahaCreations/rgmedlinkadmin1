@@ -25,7 +25,7 @@ const S = {
   r: 12, rSm: 8, rLg: 16,
 };
 
-const PER_PAGE = 10;
+const PER_PAGE = 7;
 
 const INV_CFG = {
   Generated: { color: S.green, bg: S.greenLt },

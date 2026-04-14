@@ -8,7 +8,7 @@ import { Modal, Ic, PATHS, Btn, Inp, Toast } from "./Styles";
 const DEF_CATS = ["Tablet", "Capsule", "Syrup", "Injection", "Ointment", "Medical Device"];
 const UNITS = ["Tablet", "Bottle", "Strip", "Tube", "Box"];
 const STATUSES = ["Active", "Inactive"];
-const PER_PAGE = 10;
+const PER_PAGE = 8;
 
 /* ── Palette ───────────────────────────────────────────────────────────── */
 const P = {
@@ -170,13 +170,43 @@ useEffect(() => {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); setSel(new Set()); }, [q, tab, fCat, fUnit, fDate]);
 
-  const save = async () => {
-    try {
-      if (editMed._id) { await API.put(`/medicines/${editMed._id}`, editMed); t_(`${editMed.name} updated`); }
-      else { await API.post("/medicines", editMed); t_(`${editMed.name} added`); }
-      setEditMed(null); load();
-    } catch { t_("Save failed", "err"); }
-  };
+  
+    const save = async () => {
+      try {
+
+        if (!editMed.name || !editMed.category) {
+          return t_("Name & Category required", "err");
+        }
+
+        if (Number(editMed.sellingPrice) <= 0) {
+          return t_("Selling price must be greater than 0", "err");
+        }
+
+        if (Number(editMed.costPrice) < 0) {
+          return t_("Cost price cannot be negative", "err");
+        }
+        const payload = {
+          ...editMed,
+          costPrice: Number(editMed.costPrice),
+          sellingPrice: Number(editMed.sellingPrice),
+          stock: Number(editMed.stock),
+          minStock: Number(editMed.minStock),
+        };
+
+        if (editMed._id) {
+          await API.put(`/medicines/${editMed._id}`, payload);
+          t_(`${editMed.name} updated`);
+        } else {
+          await API.post("/medicines", payload);
+          t_(`${editMed.name} added`);
+        }
+
+        setEditMed(null);
+        load();
+      } catch {
+        t_("Save failed", "err");
+      }
+    };
 
   const del = (id, name) => setConfirm({
     title: "Remove Medicine", msg: `Delete "${name}" permanently? This cannot be undone.`, label: "Delete",
@@ -185,7 +215,7 @@ useEffect(() => {
 
   const toggleActive = async (m) => {
     const ns = m.status === "Active" ? "Inactive" : "Active";
-    try { await API.put(`/medicines/${m._id}`, { ...m, status: ns }); t_(`${m.name} → ${ns}`); load(); }
+    try { await API.put(`/medicines/${m._id}`, { status: ns }); t_(`${m.name} → ${ns}`); load(); }
     catch { t_("Update failed", "err"); }
   };
 
@@ -245,7 +275,7 @@ useEffect(() => {
       const dir = sDir === "asc" ? 1 : -1;
       if (sCol === "priority") return (priority(a) - priority(b)) * dir || (a.stock - b.stock) * dir;
       if (sCol === "name") return (a.name || "").localeCompare(b.name || "") * dir;
-      if (sCol === "price") return ((a.price || 0) - (b.price || 0)) * dir;
+     if (sCol === "price") return ((a.sellingPrice ?? 0) - (b.sellingPrice ?? 0)) * dir;
       if (sCol === "stock") return ((a.stock || 0) - (b.stock || 0)) * dir;
       if (sCol === "demand") return ((a.demand30 || 0) - (b.demand30 || 0)) * dir;
       return 0;
@@ -324,13 +354,29 @@ useEffect(() => {
           <Btn ch="Refresh" v="subtle" icon="refresh" sm onClick={load} />
           <Btn ch="Export" v="subtle" icon="download" sm onClick={() => {
             const h = "Name,Category,Unit,Price,Stock,MinStock,Status\n";
-            const r = meds.map(m => `${m.name},${m.category},${m.unit},${m.price},${m.stock},${m.minStock},${m.status}`).join("\n");
+            const r = meds.map(m =>
+  `${m.name},${m.category},${m.unit},${m.sellingPrice ?? 0},${m.stock},${m.minStock},${m.status}`
+).join("\n");
             const b = new Blob([h + r], { type: "text/csv" }); const a = document.createElement("a");
             a.href = URL.createObjectURL(b); a.download = "inventory.csv"; a.click();
           }} />
-          <Btn ch="Add Medicine" icon="plus" onClick={() => setEditMed({
-            name: "", category: "", costPrice: "", sellingPrice: "", price: "", unit: "Tablet", stock: "", minStock: "", status: "Active", inactiveReason: "",
-          })} />
+         <Btn
+  ch="Add Medicine"
+  icon="plus"
+  onClick={() =>
+      setEditMed({
+      name: "",
+      category: "",
+      costPrice: 0,
+      sellingPrice: 0,
+      unit: "Tablet",
+      stock: 0,
+      minStock: 10,
+      status: "Active",
+      inactiveReason: "",
+    })
+  }
+/>
         </div>
       </div>
 
@@ -471,7 +517,7 @@ useEffect(() => {
                       <span style={{ fontWeight: 700, color: m.stock <= (m.minStock || 0) ? P.redDk : P.ink, fontVariantNumeric: "tabular-nums" }}>{m.stock}</span>
                     </td>
                     <td style={{ padding: "10px 14px", fontWeight: 600, color: P.ink, fontVariantNumeric: "tabular-nums" }}>
-                      ₹{m.sellingPrice || m.price}
+                     ₹{m.sellingPrice ?? 0}
                     </td>
                     <td style={{ padding: "10px 14px" }}>
                       <span style={{
@@ -638,7 +684,7 @@ useEffect(() => {
             <thead>
               <tr style={{ background: "linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%)", borderBottom: `2px solid ${P.muted}` }}>
                 <th style={{ padding: "9px 10px 9px 18px", width: 36 }}>
-                  <input type="checkbox" checked={allSel} onChange={toggleAll} style={{ width: 14, height: 14, cursor: "pointer", accentColor: P.pri }} />
+                  <input type="checkbox" checked={allSel}  onClick={(e) => e.stopPropagation()} onChange={toggleAll} style={{ width: 14, height: 14, cursor: "pointer", accentColor: P.pri }} />
                 </th>
                 {COLS.map(c => (
                   <th key={c.k} onClick={c.sort ? () => doSort(c.k) : undefined} style={{
@@ -681,10 +727,12 @@ useEffect(() => {
                   <tr
                     key={m._id}
                     ref={(el) => (rowRefs.current[m.name] = el)}
+                  onClick={() => nav(`/inventory/${m._id}`)}
                     style={{
                       background: isSelected ? "#EEF2FF" : bg,
                       borderBottom: `1px solid #F1F5F9`,
                       transition: "0.3s ease",
+                      cursor: "pointer",
                     }}
                     onMouseEnter={(e) => {
                       if (!isSelected && !on) {
@@ -698,7 +746,7 @@ useEffect(() => {
                     }}
                   >
                     <td style={{ padding: "9px 10px 9px 18px" }}>
-                      <input type="checkbox" checked={on} onChange={() => toggleOne(m._id)} style={{ width: 14, height: 14, cursor: "pointer", accentColor: P.pri }} />
+                      <input type="checkbox"  onClick={(e) => e.stopPropagation()} checked={on} onChange={() => toggleOne(m._id)} style={{ width: 14, height: 14, cursor: "pointer", accentColor: P.pri }} />
                     </td>
 
                     {/* Name */}
@@ -712,10 +760,10 @@ useEffect(() => {
 
                     {/* Price */}
                     <td style={{ padding: "10px 12px" }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, fontVariantNumeric: "tabular-nums" }}>₹{m.sellingPrice || m.price}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, fontVariantNumeric: "tabular-nums" }}>₹{m.sellingPrice ?? 0}</span>
                       {m.costPrice > 0 && (
                         <div style={{ fontSize: 10, color: (m.sellingPrice || 0) >= (m.costPrice || 0) ? P.grnDk : P.redDk, marginTop: 1, fontWeight: 600 }}>
-                          {((m.sellingPrice || 0) - (m.costPrice || 0) >= 0 ? "+" : "")}₹{((m.sellingPrice || 0) - (m.costPrice || 0)).toFixed(0)} profit
+                          {((m.sellingPrice ?? 0) - (m.costPrice ?? 0) >= 0 ? "+" : "")}₹{((m.sellingPrice ?? 0) - (m.costPrice ?? 0)).toFixed(0)} profit
                         </div>
                       )}
                       {!(m.costPrice > 0) && <div style={{ fontSize: 10, color: P.ink5, marginTop: 1 }}>{m.unit || "unit"}</div>}
@@ -791,12 +839,20 @@ useEffect(() => {
                     <td style={{ padding: "10px 12px" }}>
                       <div style={{ display: "flex", gap: 3 }}>
                         {[
-                          { t: "View", ic: PATHS.eye, c: P.pri, bg: P.priLt, fn: () => setViewMed(m) },
+                          { t: "View", ic: PATHS.eye, c: P.pri, bg: P.priLt, fn: () => nav(`/inventory/${m._id}`) },
                           { t: "Edit", ic: PATHS.edit, c: P.ink4, bg: P.subtle, fn: () => setEditMed(m) },
-                          { t: m.status === "Active" ? "Deactivate" : "Activate", ic: m.status === "Active" ? PATHS.lock : PATHS.unlock, c: m.status === "Active" ? P.amb : P.grn, bg: m.status === "Active" ? P.ambLt : P.grnLt, fn: () => toggleActive(m) },
+                          { t: m.status === "Active" ? "Deactivate" : "Activate", ic: m.status === "Active" ? PATHS.lock : PATHS.unlock, c: m.status === "Active" ? P.amb : P.grn, bg: m.status === "Active" ? P.ambLt : P.grnLt, fn: () => setConfirm({
+                                title: "Change Status",
+                                msg: `Change status of "${m.name}"?`,
+                                onYes: () => toggleActive(m),
+                              }) },
+                              
                           { t: "Delete", ic: PATHS.trash, c: P.red, bg: P.redLt, fn: () => del(m._id, m.name) },
                         ].map((b, i) => (
-                          <button key={i} title={b.t} onClick={b.fn} style={{
+                          <button key={i} title={b.t}  onClick={(e) => {
+                              e.stopPropagation(); // 🔥 IMPORTANT FIX
+                              b.fn();
+                            }} style={{
                             width: 28, height: 28, borderRadius: 7,
                             background: b.bg, border: `1px solid ${b.c}12`,
                             display: "flex", alignItems: "center", justifyContent: "center",
@@ -880,7 +936,7 @@ useEffect(() => {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {[
                     { l: "Cost Price", v: viewMed.costPrice ? `₹${viewMed.costPrice}` : "—", ic: PATHS.dollar },
-                    { l: "Selling Price", v: `₹${viewMed.sellingPrice || viewMed.price}`, ic: PATHS.dollar },
+                    { l: "Selling Price", v: `₹${viewMed.sellingPrice ?? 0}`, ic: PATHS.dollar },
                     { l: "Profit/Unit", v: viewMed.costPrice ? `₹${((viewMed.sellingPrice || 0) - viewMed.costPrice).toFixed(2)}` : "—", ic: PATHS.trending },
                     { l: "Margin", v: viewMed.profitMargin != null ? `${viewMed.profitMargin}%` : "—", ic: PATHS.chart },
                     { l: "Current Stock", v: viewMed.stock, ic: PATHS.box },
@@ -965,7 +1021,7 @@ useEffect(() => {
                     <Inp type="number" value={editMed.costPrice} placeholder="0.00"
                       onChange={e => {
                         const cp = e.target.value;
-                        setEditMed({ ...editMed, costPrice: cp, price: cp });
+                       setEditMed({ ...editMed, costPrice: cp });
                       }}
                     />
                   } />
@@ -988,7 +1044,20 @@ useEffect(() => {
                         : `linear-gradient(135deg, ${P.redLt}, #FEE2E2)`,
                       padding: "14px 18px",
                       display: "flex", alignItems: "center", justifyContent: "space-between",
-                    }}>
+                    }}
+                    
+                    >
+                      {profitPerUnit < 0 && (
+                        <div style={{
+                          color: "#DC2626",
+                          fontSize: 12,
+                          marginTop: 8,
+                          fontWeight: 600
+                        }}>
+                          ⚠ You are selling below cost (loss)
+                        </div>
+                      )}
+
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{
                           width: 32, height: 32, borderRadius: P.rSm,
@@ -1368,7 +1437,7 @@ export const SalesRanking = () => {
                         )}
                       </td>
                       <td style={{ padding: "11px 14px", fontWeight: 600, color: P.ink, fontVariantNumeric: "tabular-nums" }}>
-                        ₹{m.sellingPrice || m.price}
+                       ₹{m.sellingPrice ?? 0}
                       </td>
                       <td style={{ padding: "11px 14px" }}>
                         <span style={{

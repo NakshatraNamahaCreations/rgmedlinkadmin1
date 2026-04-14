@@ -28,7 +28,7 @@ const card = (x = {}) => ({
   border: `1px solid ${S.border}`, boxShadow: S.shadow, ...x,
 });
 
-const PER_PAGE = 10;
+const PER_PAGE = 7;
 
 const TABS = [
   { id: "sales",     label: "Sales",     icon: PATHS.trending, color: S.brand },

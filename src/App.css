@@ -16,6 +16,15 @@ flex-direction:column;
 box-shadow:4px 0 20px rgba(0,0,0,0.25);
 }
 
+.custom-date-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+}
+
 /* LOGO */
 
 .logo{

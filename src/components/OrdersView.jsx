@@ -26,7 +26,7 @@
     r: 12, rSm: 8, rLg: 16,
   };
 
-  const PER_PAGE = 10;
+  const PER_PAGE = 7;
 
   const STATUS_CFG = {
     Created:    { color: S.amber,  bg: S.amberLt, icon: PATHS.clock },

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import API from "../api";
 import { Ic, PATHS, Modal, Btn, Inp, Sel, Toast } from "./Styles";
 import { fDate, fCur } from "../data/MasterData";
+import { useNavigate } from "react-router-dom";
 
 /* ── TOKENS ───────────────────────────────────────────────────── */
 const S = {
@@ -55,7 +56,10 @@ const INDIAN_STATES = [
   "Uttarakhand","West Bengal","Delhi","Chandigarh","Puducherry","Jammu and Kashmir",
   "Ladakh","Andaman and Nicobar Islands","Dadra and Nagar Haveli and Daman and Diu","Lakshadweep",
 ];
-const PER_PAGE = 10;
+
+
+
+const PER_PAGE = 5;
 
 /* ── Confirm Dialog ────────────────────────────────────────────── */
 const Confirm = ({ title, msg, label = "Delete", onYes, onNo }) => (
@@ -125,6 +129,7 @@ const PatientsView = () => {
   const [patients, setPatients] = useState([]);       // current page enriched
   const [totalPatients, setTotalPatients] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  
   const [stats, setStats] = useState({ total: 0, newThisMonth: 0, growthPct: 0, withPrescriptions: 0, gender: { male: 0, female: 0, other: 0 } });
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState(""); // raw input (immediate)
@@ -162,6 +167,8 @@ const PatientsView = () => {
   }, [currentPage, search, filter]);
 
 
+
+
   useEffect(() => {
   const editHandler = (e) => {
     const p = e.detail;
@@ -179,30 +186,36 @@ const PatientsView = () => {
     });
   };
 
-  const inactiveHandler = async (e) => {
-    const p = e.detail;
+const toggleStatusHandler = async (e) => {
+  const p = e.detail;
 
-    try {
-      await API.put(`/patient-details/${p._id}`, {
-        isActive: false, // ✅ IMPORTANT
-      });
+  try {
+    await API.put(`/patient-details/${p._id}`, {
+      isActive: !p.isActive, // 🔥 toggle
+    });
 
-      t_(`${p.name} marked as inactive`);
-      fetchPage();
-      setSelected(null);
-    } catch (err) {
-      t_("Failed to update status", "err");
-    }
-  };
+    t_(`${p.name} is now ${!p.isActive ? "Active" : "Inactive"}`);
+    fetchPage();
+    setSelected(null);
+  } catch (err) {
+    t_("Failed to update status", "err");
+  }
+};
 
   window.addEventListener("editPatient", editHandler);
-  window.addEventListener("inactivePatient", inactiveHandler);
+ window.addEventListener("togglePatientStatus", toggleStatusHandler);
 
   return () => {
     window.removeEventListener("editPatient", editHandler);
-    window.removeEventListener("inactivePatient", inactiveHandler);
+   window.removeEventListener("togglePatientStatus", toggleStatusHandler);
   };
 }, []);
+
+useEffect(() => {
+  if (currentPage > totalPages) {
+    setCurrentPage(1);
+  }
+}, [totalPages]);
 
 const fetchPage = async () => {
   setLoading(true);
@@ -256,11 +269,8 @@ pincode: p.address?.pincode || latestOrder?.addressDetails?.pincode || "--",
   };
 });
 
-    setPatients(formatted);
-
-    // ✅ since no backend pagination
-    setTotalPatients(formatted.length);
-    setTotalPages(1);
+   
+  setPatients(formatted);
 
   } catch (err) {
     if (id !== fetchIdRef.current) return;
@@ -400,6 +410,19 @@ if (filter === "WithRx") return p.orders && p.orders.length > 0;
 return true;
 });
 
+  useEffect(() => {
+  setTotalPatients(filteredPatients.length);
+  setTotalPages(Math.ceil(filteredPatients.length / PER_PAGE));
+}, [filteredPatients]);
+
+
+const startIndex = (currentPage - 1) * PER_PAGE;
+
+const paginatedPatients = filteredPatients.slice(
+  startIndex,
+  startIndex + PER_PAGE
+);
+
   /* ── RENDER ── */
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: "'DM Sans',sans-serif" }}>
@@ -499,15 +522,22 @@ return true;
                 </thead>
                 <tbody>
                   
-                 {filteredPatients.map(p => {
+                 {paginatedPatients.map(p => {
       
                     const [fg, bg] = avatarColor(p.name || "U");
                     return (
-                      <tr key={p._id}
-                        style={{ borderBottom: `1px solid ${S.border}`, transition: "background .1s", cursor: "pointer" }}
+                      <tr
+                        key={p._id}
+                        onClick={() => setSelected(p)}
+                        style={{
+                          borderBottom: `1px solid ${S.border}`,
+                          transition: "background .1s",
+                          cursor: "pointer"
+                        }}
                         onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >
+                   
                         {/* ID */}
                         <td style={{ padding: "12px 14px" }}>
                           <span    onClick={() => setSelected(p)} style={{ fontWeight: 700, color: S.brand, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{p.patientId}</span>
@@ -813,20 +843,24 @@ const PatientProfile = ({ patient: p, onClose }) => {
 
           {/* INACTIVE BUTTON */}
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent("inactivePatient", { detail: p }))}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: `1px solid ${S.red}`,
-              background: S.redBg,
-              color: S.red,
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600
-            }}
-          >
-            Inactive
-          </button>
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("togglePatientStatus", { detail: p })
+            )
+          }
+          style={{
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: `1px solid ${p.isActive ? S.red : S.green}`,
+            background: p.isActive ? S.redBg : S.greenBg,
+            color: p.isActive ? S.red : S.green,
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 600
+          }}
+        >
+          {p.isActive ? "Inactive" : "Active"}
+        </button>
 
         </div>
       </div>

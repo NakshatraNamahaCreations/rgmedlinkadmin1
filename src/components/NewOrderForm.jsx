@@ -34,7 +34,7 @@ export default function NewOrderForm({ onSave, onClose }) {
   ]);
 
   useEffect(() => {
-    API.get("/patients").then((r) => setPatients(r.data.data || [])).catch(() => {});
+    API.get("/patient-details/all").then((r) => setPatients(r.data.data || [])).catch(() => {});
     API.get("/medicines").then((r) => setMedicines(r.data || [])).catch(() => {});
   }, []);
 
@@ -67,34 +67,89 @@ export default function NewOrderForm({ onSave, onClose }) {
   const total = subtotal + gst - Number(discount || 0);
 
   /* ── SUBMIT ── */
-  const handlePlaceOrder = async () => {
-    if (!patient) { alert("Please select a patient"); return; }
-    if (!doctor.trim()) { alert("Please enter doctor name"); return; }
-    if (rows.some((r) => !r.medicine)) { alert("Please select a medicine for each row"); return; }
+    const handlePlaceOrder = async () => {
+      if (!patient) {
+        alert("Please select a patient");
+        return;
+      }
 
-    const payload = {
-      patient,
-      doctor,
-      start,
-      discount: Number(discount || 0),
-      meds: rows.map((row) => ({
-        medicine: row.medicine,
-        duration: Number(row.duration),
-        freq: {
-          m: Number(row.freq.m),
-          a: Number(row.freq.a),
-          n: Number(row.freq.n),
+      if (rows.some((r) => !r.medicine)) {
+        alert("Please select a medicine for each row");
+        return;
+      }
+
+      try {
+        setSaving(true);
+
+        const selectedPatient = patients.find((p) => p._id === patient);
+
+        // ✅ FIX 1: Build proper items
+        const items = rows.map((row) => {
+          const med = medicines.find((m) => m._id === row.medicine);
+
+          const daily =
+            (row.freq.m || 0) +
+            (row.freq.a || 0) +
+            (row.freq.n || 0);
+
+          const qty = daily * row.duration;
+          const price = med?.sellingPrice || med?.price || 0;
+
+          return {
+            medicineId: med._id,
+            name: med.name,              // 🔥 REQUIRED
+            qty,
+            duration: Number(row.duration),
+            freq: row.freq,
+            price,
+            unit: med.unit || "tablet",
+            subtotal: qty * price,       // 🔥 REQUIRED
+          };
+        });
+
+        // ✅ FIX 2: totalAmount
+        const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
+
+        // ✅ FIX 3: correct payload
+        const payload = {
+          patient: patient,   // 🔥 NOT patientId
+
+          patientDetails: {
+            patientId: selectedPatient.patientId,
+            name: selectedPatient.name,
+            phone: selectedPatient.primaryPhone,
+            gender: selectedPatient.gender,
+          },
+
+        addressDetails: {
+          fullAddress: selectedPatient?.addressId?.fullAddress || "Default Address",
+          city: selectedPatient?.addressId?.city || "Mysore",
+          state: selectedPatient?.addressId?.state || "Karnataka",
+          pincode: selectedPatient?.addressId?.pincode || "570001",
         },
-      })),
-    };
 
-    try {
-      setSaving(true);
-      await onSave(payload);
-    } finally {
-      setSaving(false);
-    }
-  };
+          items,              // 🔥 FULL ITEMS
+          totalAmount,
+
+         paymentStatus: "Pending",  // admin flow
+          orderStatus: "Created",
+        };
+
+        console.log("FINAL FIXED PAYLOAD", payload);
+
+        const res = await API.post("/orders", payload); // ✅ use correct route
+
+        alert("Order created successfully ✅");
+
+        onClose();
+
+      } catch (err) {
+        console.error(err.response?.data || err.message);
+        alert(err.response?.data?.message || "Order failed");
+      } finally {
+        setSaving(false);
+      }
+    };
 
   /* ── PATIENT SEARCH FILTER ── */
   const filteredPatients = patientSearch
