@@ -9,9 +9,7 @@
   cursor: pointer;
 }
 
-body {
-  user-select: none;
-}
+
 
 .custom-date-input {
   width: 100%;

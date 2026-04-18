@@ -40,7 +40,14 @@ const transformOrder = (o) => {
     discount: o.prescription?.discount || 0,
     total: o.totalAmount,
 
-    meds: items,
+    meds: items.map((m) => ({
+  mName: m.name || "—",
+  dur: m.duration,
+  freq: m.freq,
+  qty: m.qty,
+  price: m.price,
+  sub: m.subtotal,
+})),
   };
 };
 
@@ -62,8 +69,15 @@ export default function PrescriptionDetail() {
   const activeStep = steps.indexOf(rx.ordStatus);
 
 
-  const formatDate = (d) =>
-  d ? new Date(d).toLocaleDateString() : "—";
+const formatDate = (d) => {
+  if (!d) return "—";
+
+  return new Date(d).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 
 const getDaysLeft = (expiry) => {
   if (!expiry) return "—";
@@ -211,7 +225,7 @@ const getDaysLeft = (expiry) => {
     fontWeight: 600,
   }}
 >
-  {m.name}
+ {m.mName}
 </span>
   </div>
 

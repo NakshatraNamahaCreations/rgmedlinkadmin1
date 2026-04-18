@@ -18,6 +18,8 @@ import TicketsView from "./components/TicketsView";
 import Login from "./components/Login";
 import InventoryDetail from "./components/InventoryDetail";
 import PrescriptionDetail from "./components/PrescriptionDetail";
+import OrderDetail from "./components/OrderDetail";
+import BulkUpload from "./components/BulkUpload";
 
 /* ─── SIDEBAR ──────────────────────────────────────────────────────────── */
 const Sidebar = ({ currentRole, NAV }) => {
@@ -295,6 +297,8 @@ export default function App() {
               <Route path="/tickets"      element={<TicketsView />} />
               <Route path="/inventory/:id" element={<InventoryDetail />} />
               <Route path="/prescriptions/:id" element={<PrescriptionDetail />} />
+              <Route path="/orders/:id" element={<OrderDetail />} />
+              <Route path="/inventory/bulk-upload" element={<BulkUpload />} />
             </Routes>
           </div>
 

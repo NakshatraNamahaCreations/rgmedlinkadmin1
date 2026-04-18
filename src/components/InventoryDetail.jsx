@@ -9,6 +9,7 @@ import {
   FiUnlock,
   FiX
 } from "react-icons/fi";
+import "./InventoryDetail.css";
 
 export default function InventoryDetail() {
   const { id } = useParams();
@@ -26,6 +27,13 @@ export default function InventoryDetail() {
   "Tube",
   "Box"
 ]);
+const [categoryUnitMap, setCategoryUnitMap] = useState({
+  Tablet: ["Tablet", "Strip"],
+  Bottle: ["Bottle"],
+  Strip: ["Strip"],
+  Tube: ["Tube"],
+  Box: ["Box"]
+});
 
 const [newCategory, setNewCategory] = useState("");
 const [showCategoryInput, setShowCategoryInput] = useState(false);
@@ -61,89 +69,127 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
   );
 
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+    <div className="inv-container">
 
       {/* HEADER */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <button onClick={() => nav(-1)} style={backBtn}>
-            <FiArrowLeft /> Back
-          </button>
+      <div className="inv-header">
+       <div>
+    <button onClick={() => nav(-1)} className="inv-btn">
+      <FiArrowLeft /> Back
+    </button>
 
-          <h2 style={{ margin: 0 }}>{data.name}</h2>
-          <p style={{ color: "#64748B" }}>
-            {data.category} • {data.unit}
-          </p>
-        </div>
+    <h2 className="inv-title">{data.name}</h2>
+    <p className="inv-sub">
+      {data.category} • {data.unit}
+    </p>
+  </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={statusBadge(data)}>{data.status}</span>
+  <div style={{ display: "flex", gap: 10 }}>
+    <span className={`status-pill ${data.status === "Active" ? "active" : "inactive"}`}>
+      {data.status}
+    </span>
 
-          <button
-            onClick={() => {
-              setEditData(data);
-              setEditOpen(true);
-            }}
-            style={btnStyle}
-          >
-            <FiEdit2 /> Edit
-          </button>
+    <button
+      onClick={() => {
+        setEditData(data);
+        setEditOpen(true);
+      }}
+      className="inv-btn"
+    >
+      <FiEdit2 /> Edit
+    </button>
 
-          <button onClick={toggleActive} style={btnStyle}>
-            {data.status === "Active" ? <FiLock /> : <FiUnlock />}
-          </button>
+    <button onClick={toggleActive} className="inv-btn">
+      {data.status === "Active" ? <FiLock /> : <FiUnlock />}
+    </button>
 
-          <button onClick={handleDelete} style={{ ...btnStyle, color: "#DC2626" }}>
-            <FiTrash2 />
-          </button>
-        </div>
-      </div>
+    <button onClick={handleDelete} className="inv-btn">
+      <FiTrash2 />
+    </button>
+  </div>
+</div>
 
       {/* STOCK BAR */}
-      <div style={card}>
+      <div className="section">
+  <div className="card">
         <div style={{ marginBottom: 10, fontWeight: 600 }}>
           Stock Health ({data.stock} / {(data.minStock || 0) * 2})
         </div>
+        
 
-        <div style={{ height: 8, background: "#E2E8F0", borderRadius: 20 }}>
-          <div style={{
+        <div className="stock-bar">
+         <div
+          className="stock-fill"
+          style={{
             width: `${pct}%`,
-            height: "100%",
-            background: "#10B981",
-            borderRadius: 20
-          }} />
+            background:
+              data.stock < data.minStock
+                ? "#dc2626"
+                : pct < 50
+                ? "#f59e0b"
+                : "#10b981",
+          }}
+        />
+        </div>
+      </div>
+        </div>
+        <br />
+
+      {/* GRID */}
+      <div className="grid-2">
+      <div className="kpi-card">
+        <div className="kpi-label">Selling Price</div>
+        <div className="kpi-value">₹{data.sellingPrice}</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Cost Price</div>
+        <div className="kpi-value">₹{data.costPrice}</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Profit</div>
+        <div className={`kpi-value ${profit > 0 ? "green" : "red"}`}>
+          ₹{profit}
         </div>
       </div>
 
-      {/* GRID */}
-      <div style={grid}>
-        <Card label="Selling Price" value={`₹${data.sellingPrice ?? 0}`} />
-        <Card label="Cost Price" value={`₹${data.costPrice ?? 0}`} />
-        <Card label="Profit / Unit" value={`₹${profit}`} />
-        <Card label="Margin" value={`${margin}%`} />
+      <div className="kpi-card">
+        <div className="kpi-label">Margin</div>
+        <div className="kpi-value">{margin}%</div>
+      </div>
 
-        <Card label="Stock" value={data.stock} />
-        <Card label="Min Stock" value={data.minStock} />
-        <Card label="30d Demand" value={data.demand30 || 0} />
-        <Card label="Stockout Days" value={data.daysUntilStockout ?? "—"} />
+      <div className="kpi-card">
+        <div className="kpi-label">Stock</div>
+        <div className="kpi-value">{data.stock}</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Min Stock</div>
+        <div className="kpi-value">{data.minStock}</div>
+      </div>
       </div>
 
       {/* INVENTORY INSIGHTS */}
-      <div style={card}>
+     {/* INVENTORY INSIGHTS */}
+<div className="section">
+  <div className="card">
         <h4 style={{ marginBottom: 10 }}>Inventory Insights</h4>
 
         <p>Auto Reorder Qty: <b>{data.autoReorderQty ?? 0}</b></p>
         <p>Days Until Stockout: <b>{data.daysUntilStockout ?? "—"}</b></p>
 
         {data.stock < data.minStock && (
-          <div style={{ color: "#DC2626", fontWeight: 600 }}>
+         <div className="insight-warning">
             ⚠ Low stock — reorder required
           </div>
         )}
       </div>
-
+  </div>
       {/* META */}
-      <div style={card}>
+ {/* INVENTORY INSIGHTS */}
+<div className="section">
+  <div className="card">
         <h4 style={{ marginBottom: 10 }}>Additional Info</h4>
 
         <p>Created: {new Date(data.createdAt).toLocaleDateString()}</p>
@@ -153,7 +199,7 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
           <p>Expiry: {new Date(data.expiry).toLocaleDateString()}</p>
         )}
       </div>
-
+ </div>
       {/* EDIT MODAL */}
       {editOpen && (() => {
 
@@ -166,7 +212,7 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
 
         return (
           <div style={overlay}>
-            <div style={{ ...modal, width: 600 }}>
+            <div style={{ ...modal, maxWidth: 700, width: "100%" }}>
 
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <h3>Edit Medicine</h3>
@@ -234,15 +280,30 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <button
             style={saveBtn}
-            onClick={() => {
-              if (!newCategory.trim()) return;
+           onClick={() => {
+          if (!newCategory.trim()) return;
 
-              setCategories([...categories, newCategory]);
-              setEditData({ ...editData, category: newCategory });
+          const trimmed = newCategory.trim();
 
-              setNewCategory("");
-              setShowCategoryInput(false);
-            }}
+          // ✅ Add category
+          setCategories(prev => [...prev, trimmed]);
+
+        // ✅ Add mapping (default units)
+        setCategoryUnitMap(prev => ({
+          ...prev,
+          [trimmed]: ["Unit"]   // default unit (or you can customize)
+        }));
+
+        // ✅ Auto set category + unit
+        setEditData(prev => ({
+          ...prev,
+          category: trimmed,
+          unit: "Unit"
+        }));
+
+        setNewCategory("");
+        setShowCategoryInput(false);
+      }}
           >
             Add
           </button>
@@ -266,18 +327,16 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
                     <div>
                       <label style={label}>Unit</label>
                       <select
-                        style={input}
-                        value={editData.unit}
-                        onChange={(e) =>
-                          setEditData({ ...editData, unit: e.target.value })
-                        }
-                      >
-                        <option>Tablet</option>
-                        <option>Bottle</option>
-                        <option>Strip</option>
-                        <option>Tube</option>
-                        <option>Box</option>
-                      </select>
+                      style={input}
+                      value={editData.unit}
+                      onChange={(e) =>
+                        setEditData({ ...editData, unit: e.target.value })
+                      }
+                    >
+                      {(categoryUnitMap[editData.category] || []).map(u => (
+                        <option key={u}>{u}</option>
+                      ))}
+                    </select>
                     </div>
                   </div>
                 </div>
@@ -329,13 +388,13 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
                     <div style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      padding: "12px 16px"
+                      padding: "8px 12px"
                     }}>
                       <div>
                         <div style={{ fontSize: 12, color: "#059669" }}>
                           PROFIT PER UNIT
                         </div>
-                        <div style={{ fontSize: 20, fontWeight: 800 }}>
+                        <div style={{ fontSize: 18, fontWeight: 800 }}>
                           ₹{profitPerUnit.toFixed(2)}
                         </div>
                       </div>
@@ -374,41 +433,44 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
                 </div>
 
                 {/* STOCK */}
-                <div>
+                <div  >
                   <h4>Stock & Status</h4>
 
                  <div style={row}>
-  <div>
-    <label style={label}>Current Stock</label>
-    <input
-      type="number"
-      style={input}
-      value={editData.stock}
-      onChange={(e) =>
-        setEditData({
-          ...editData,
-          stock: Number(e.target.value),
-        })
-      }
-    />
-  </div>
+                  <div>
+                    <label style={label}>Current Stock</label>
+                    <input
+                      type="number"
+                      style={input}
+                      value={editData.stock}
+                      onChange={(e) =>
+                        setEditData({
+                          ...editData,
+                          stock: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
 
-  <div>
-    <label style={label}>Min Stock (Reorder Point)</label>
-    <input
-      type="number"
-      style={input}
-      value={editData.minStock}
-      onChange={(e) =>
-        setEditData({
-          ...editData,
-          minStock: Number(e.target.value),
-        })
-      }
-    />
-  </div>
-</div>
-                      <br />
+                  <div>
+                    <label style={label}>Min Stock (Reorder Point)</label>
+                    <input
+                      type="number"
+                      style={input}
+                      value={editData.minStock}
+                      onChange={(e) =>
+                        setEditData({
+                          ...editData,
+                          minStock: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                      
+                 <div style={{ marginTop:4 }}>
+                  <label style={label}>Status</label>
+
                   <select
                     style={input}
                     value={editData.status}
@@ -419,6 +481,23 @@ const [showCategoryInput, setShowCategoryInput] = useState(false);
                     <option>Active</option>
                     <option>Inactive</option>
                   </select>
+                </div>
+                  {editData.status === "Inactive" && (
+  <div style={{ marginTop: 10 }}>
+    <label style={label}>Deactivation Reason</label>
+    <textarea
+      style={{ ...input, minHeight: 55 }}
+      value={editData.inactiveReason || ""}
+      onChange={(e) =>
+        setEditData({
+          ...editData,
+          inactiveReason: e.target.value,
+        })
+      }
+      placeholder="Enter reason for inactive..."
+    />
+  </div>
+)}
                 </div>
 
                 <button

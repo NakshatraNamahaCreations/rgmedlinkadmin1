@@ -581,18 +581,50 @@ const makeExportRows = (data) => data.map(o => {
                     transition: "background .15s",
                   }}>
                     <td style={tdS}>
-                      <span
-                        style={{ fontSize: 13, fontWeight: 700, color: S.brand, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}
-                        onClick={() => navigate("/orders", { state: { orderId: o.orderId } })}
-                      >
-                        {o.orderId}
-                      </span>
+                     <span
+  style={{
+    fontSize: 13,
+    fontWeight: 700,
+    color: S.brand,
+    cursor: "pointer",
+  }}
+  onMouseEnter={(e) => {
+    e.currentTarget.style.textDecoration = "underline";
+    e.currentTarget.style.color = "#4338CA";
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.textDecoration = "none";
+    e.currentTarget.style.color = S.brand;
+  }}
+  onClick={() =>
+    navigate("/orders", {
+      state: { orderId: o.orderId },
+    })
+  }
+>
+  {o.orderId}
+</span>
                     </td>
                     <td style={tdS}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: o.invoiceNumber === "-" ? S.ink4 : S.ink, fontFamily: "'DM Mono', monospace" }}>
-                        {o.invoiceNumber}
-                      </span>
-                    </td>
+  <span
+    style={{
+      fontSize: 13,
+      fontWeight: 600,
+      color: "#7C3AED",
+      cursor: "pointer",
+      fontFamily: "'DM Mono', monospace",
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.textDecoration = "underline";
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.textDecoration = "none";
+    }}
+    onClick={() => navigate(`/invoice/${o.id}`)}
+  >
+    {o.invoiceNumber}
+  </span>
+</td>
                     <td style={tdS}><span style={{ fontSize: 13, color: S.ink3 }}>{fmtDate(o.invoiceDate)}</span></td>
                     <td style={tdS}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -604,7 +636,29 @@ const makeExportRows = (data) => data.map(o => {
                         }}>
                           {(o.customerName || "?")[0].toUpperCase()}
                         </div>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: S.ink }}>{o.customerName}</span>
+                    <span
+  style={{
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#4F46E5",
+    cursor: "pointer",
+  }}
+  onMouseEnter={(e) => {
+    e.currentTarget.style.textDecoration = "underline";
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.textDecoration = "none";
+  }}
+  onClick={() =>
+    navigate("/patients", {
+      state: {
+        patientName: o.customerName,
+      },
+    })
+  }
+>
+  {o.customerName}
+</span>
                       </div>
                     </td>
                     <td style={tdS}>

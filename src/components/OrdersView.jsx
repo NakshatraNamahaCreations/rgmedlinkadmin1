@@ -137,7 +137,7 @@
     const exportRef = useRef(null);
     const navigate = useNavigate();
     const location = useLocation();
-    
+    const [isInitialized, setIsInitialized] = useState(false);
     const highlightOrderId = location.state?.orderId;
     
   const subtotal = (selectedOrder?.items || []).reduce(
@@ -153,11 +153,18 @@
     }, [searchInput]);
 
 
-    useEffect(() => {
-    if (location.state?.statusFilter) {
-      setStatusFilter(location.state.statusFilter);
-    }
-  }, [location.state]);
+      useEffect(() => {
+        if (location.state?.statusFilter) {
+          setStatusFilter(location.state.statusFilter);
+          setPayFilter("All");
+          setSearch("");
+          setSearchInput("");
+          setDateFilter("all");
+          setCurrentPage(1);
+        }
+
+        setIsInitialized(true); // ✅ ADD THIS LINE
+      }, [location.state]);
 
     /* ── Reset page to 1 when any filter changes ── */
     useEffect(() => { setCurrentPage(1); }, [search, statusFilter, payFilter, dateFilter, customFrom, customTo]);
@@ -269,29 +276,25 @@
     };
 
     /* ── Stats (computed from current page data — for KPI cards we use totalRecords) ── */
-    const stats = useMemo(() => {
-      // Note: With server-side pagination, per-status counts are not available from the
-      // paginated response alone. We show totalRecords for "total" and keep the rest
-      // computed from the current page data as approximate indicators.
-      // For accurate stats, the backend should provide aggregate counts.
-      const now = new Date();
-      const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-      const todayOrders = orders.filter(o => new Date(o.createdAt) >= todayStart);
-      const totalRevenue = orders
-        .filter(o => o.paymentStatus === "Paid")
-        .reduce((s, o) => s + (o.totalAmount || 0), 0);
-      return {
-        total: totalRecords,
-        today: todayOrders.length,
-        created: orders.filter(o => o.orderStatus === "Created").length,
-        processing: orders.filter(o => o.orderStatus === "Processing").length,
-        packed: orders.filter(o => o.orderStatus === "Packed").length,
-        shipped: orders.filter(o => o.orderStatus === "Shipped").length,
-        delivered: orders.filter(o => o.orderStatus === "Delivered").length,
-        paid: orders.filter(o => o.paymentStatus === "Paid").length,
-        revenue: totalRevenue,
-      };
-    }, [orders, totalRecords]);
+ const stats = useMemo(() => {
+  // 🚨 IMPORTANT:
+  // orders = paginated data (NOT full dataset)
+  // So we ONLY show reliable values
+
+  return {
+    total: totalRecords, // ✅ correct (from backend)
+
+    // ❌ These are NOT reliable with pagination → set to null or 0
+    today: null,
+    created: null,
+    processing: null,
+    packed: null,
+    shipped: null,
+    delivered: null,
+    paid: null,
+    revenue: null,
+  };
+}, [totalRecords]);
 
     /* ── Status chip ── */
     const StatusChip = ({ status }) => {
@@ -623,7 +626,22 @@
               ].map(tab => {
                 const active = statusFilter === tab.value;
                 return (
-                  <button key={tab.value} onClick={() => setStatusFilter(tab.value)} style={{
+                  <button key={tab.value} 
+                  onClick={() => {
+  setStatusFilter(tab.value);
+  setCurrentPage(1);
+
+  fetchOrders(1, {
+    search,
+    statusFilter: tab.value, // ✅ force new value
+    payFilter,
+    dateFilter,
+    customFrom,
+    customTo
+  });
+}}
+                  
+                  style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "5px 10px", borderRadius: 99,
                     border: `1.5px solid ${active ? tab.color : S.border}`,
@@ -753,17 +771,19 @@
                 ) : orders.map((o, i) => {
                   const isHighlighted = o.orderId === highlightOrderId;
                   return (
-                    <tr
-                      key={o._id}
-                      id={`order-${o.orderId}`}
-                      style={{
-                        background: isHighlighted ? S.brandLt : i % 2 === 0 ? "#fff" : S.bg,
-                        transition: "background .15s",
-                        borderLeft: isHighlighted
-                          ? `4px solid ${S.brand}`
-                          : `4px solid ${(STATUS_CFG[o.orderStatus || "Created"] || {}).color || S.border}`,
-                      }}
-                    >
+                  <tr
+                  key={o._id}
+                  id={`order-${o.orderId}`}
+                  onClick={() => navigate(`/orders/${o._id}`)}   // ✅ ADD THIS
+                  style={{
+                    cursor: "pointer",                 // ✅ ADD THIS (UX)
+                    background: isHighlighted ? S.brandLt : i % 2 === 0 ? "#fff" : S.bg,
+                    transition: "background .15s",
+                    borderLeft: isHighlighted
+                      ? `4px solid ${S.brand}`
+                      : `4px solid ${(STATUS_CFG[o.orderStatus || "Created"] || {}).color || S.border}`,
+                  }}
+                >
                       <td style={tdS}>
                         <span style={{
                           fontSize: 12, fontWeight: 700, color: S.brand, fontFamily: "'DM Mono', monospace",
@@ -811,14 +831,21 @@
                         <div style={{ display: "flex", gap: 6 }}>
                           <button
                             title="View Details"
-                            onClick={() => setSelectedOrder(o)}
+                             onClick={(e) => {
+                              e.stopPropagation();              // ✅ PREVENT ROW CLICK
+                              setSelectedOrder(o);
+                            }}
+
                             style={actionBtn}
                           >
                             <Ic d={PATHS.eye} s={14} c={S.brand} />
                           </button>
                           <button
                             title="Delete Order"
-                            onClick={() => deleteOrder(o)}
+                             onClick={(e) => {
+    e.stopPropagation();              // ✅ IMPORTANT
+    deleteOrder(o);
+  }}
                             style={{ ...actionBtn, background: S.redLt, border: `1px solid ${S.red}20` }}
                           >
                             <Ic d={PATHS.trash} s={14} c={S.red} />

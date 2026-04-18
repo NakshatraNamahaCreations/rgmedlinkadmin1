@@ -3,10 +3,11 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useRef } from "react";
 import API from "../api";
 import { Modal, Ic, PATHS, Btn, Inp, Toast } from "./Styles";
+import { MdUploadFile } from "react-icons/md";
 
 /* ── Constants ──────────────────────────────────────────────────────────── */
 const DEF_CATS = ["Tablet", "Capsule", "Syrup", "Injection", "Ointment", "Medical Device"];
-const UNITS = ["Tablet", "Bottle", "Strip", "Tube", "Box"];
+
 const STATUSES = ["Active", "Inactive"];
 const PER_PAGE = 8;
 
@@ -126,10 +127,49 @@ const InventoryMgt = () => {
   const [fDate, setFDate] = useState("all");   // date filter: all | today | week | month | year
   const tableRef = useRef(null);
   const nav = useNavigate();
+  const [newCategoryUnits, setNewCategoryUnits] = useState([]);
+  const ALL_UNITS = ["Tablet", "Strip", "Capsule", "ML", "Grams", "Unit"];
 const location = useLocation();
 const selectedMedicine = location.state?.medicineName;
 
+const [categoryUnitMap, setCategoryUnitMap] = useState({
+  Tablet: ["Tablet", "Strip"],
+  Capsule: ["Capsule"],
+  Syrup: ["ML"],
+  Injection: ["ML"],
+  Ointment: ["Grams"],
+  "Medical Device": ["Unit"]
+});
+
+
 const rowRefs = useRef({});
+
+const handleExcelUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await API.post(
+      "/medicines/upload-excel",
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      }
+    );
+
+    alert(
+      `Success!\nCreated: ${res.data.created}\nUpdated: ${res.data.updated}`
+    );
+
+    load(); // refresh table
+  } catch (err) {
+    console.error(err);
+    alert("Upload failed");
+  }
+};
 
 
 useEffect(() => {
@@ -158,14 +198,41 @@ useEffect(() => {
 
   const t_ = useCallback((msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await API.get("/dashboard/summary");
-      setDash(r.data); setMeds(r.data.medicines || []);
-    } catch (err) { console.error("Inventory load error:", err); t_("Failed to load inventory", "err"); }
-    finally { setLoading(false); }
-  }, [t_]);
+
+  const handleAddCategory = () => {
+  if (!newCat || newCategoryUnits.length === 0) {
+    alert("Enter category & select units");
+    return;
+  }
+
+  // ✅ Add category to dropdown
+  setCats(prev => [...prev, newCat]);
+
+  // ✅ Add mapping
+  setCategoryUnitMap(prev => ({
+    ...prev,
+    [newCat]: newCategoryUnits
+  }));
+
+  // ✅ Reset modal
+  setNewCat("");
+  setNewCategoryUnits([]);
+  setCatModal(false);
+};
+const load = useCallback(async () => {
+  setLoading(true);
+  try {
+    const r = await API.get("/medicines");
+
+    setMeds(r.data); // ✅ FIXED
+
+  } catch (err) {
+    console.error("Inventory load error:", err);
+    t_("Failed to load inventory", "err");
+  } finally {
+    setLoading(false);
+  }
+}, [t_]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); setSel(new Set()); }, [q, tab, fCat, fUnit, fDate]);
@@ -379,6 +446,41 @@ useEffect(() => {
 />
         </div>
       </div>
+
+
+    <div style={{ display: "flex", gap: 10 }}>
+
+
+
+  {/* 👉 NEW BULK PAGE BUTTON */}
+  <button
+    onClick={() => nav("/inventory/bulk-upload")}
+      style={{
+        padding: "10px 16px",
+        background: "#10B981",
+        color: "#fff",
+        borderRadius: "8px",
+        fontSize: "13px",
+        fontWeight: "600",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+      }}
+  >
+        <MdUploadFile size={18} />
+      Upload Excel
+  </button>
+
+  {/* Hidden File Input */}
+  <input
+    id="excelUploadFile"
+    type="file"
+    accept=".xlsx,.xls"
+    style={{ display: "none" }}
+    onChange={handleExcelUpload}
+  />
+</div>
+
 
       {/* ═══════════════ KPI CARDS ═══════════════ */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
@@ -994,8 +1096,20 @@ useEffect(() => {
                   } />
                   <Field label="Category" req ch={
                     <div style={{ display: "flex", gap: 6 }}>
-                      <select value={editMed.category} onChange={e => setEditMed({ ...editMed, category: e.target.value })} style={{ ...selSx, flex: 1 }}>
-                        <option value="">Select</option>
+                     <select
+                      style={selSx}
+                          value={editMed.category}
+                          onChange={e => {
+                            const selectedCategory = e.target.value;
+
+                            setEditMed({
+                              ...editMed,
+                              category: selectedCategory,
+                              unit: categoryUnitMap[selectedCategory]?.[0] || ""
+                            });
+                          }}
+                        >
+                          <option value="">Select</option>
                         {cats.map(c => <option key={c}>{c}</option>)}
                       </select>
                       <button onClick={() => setCatModal(true)} style={{
@@ -1007,7 +1121,9 @@ useEffect(() => {
                   } />
                   <Field label="Unit" ch={
                     <select value={editMed.unit} onChange={e => setEditMed({ ...editMed, unit: e.target.value })} style={selSx}>
-                      {UNITS.map(u => <option key={u}>{u}</option>)}
+                      {(categoryUnitMap[editMed.category] || []).map(u => (
+                        <option key={u}>{u}</option>
+                      ))}
                     </select>
                   } />
                 </div>
@@ -1143,6 +1259,37 @@ useEffect(() => {
         <Modal title="Add Category" sub="Create a custom medicine category" w={400} onClose={() => setCatModal(false)}
           ch={
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+              <div style={{ marginTop: 10 }}>
+  <label style={{ fontSize: 12, fontWeight: 600 }}>Select Units</label>
+
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+    {ALL_UNITS.map(u => (
+      <button
+        key={u}
+        type="button"
+        onClick={() => {
+          if (newCategoryUnits.includes(u)) {
+            setNewCategoryUnits(newCategoryUnits.filter(x => x !== u));
+          } else {
+            setNewCategoryUnits([...newCategoryUnits, u]);
+          }
+        }}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 20,
+          border: "1px solid #ccc",
+          background: newCategoryUnits.includes(u) ? "#6366F1" : "#f1f5f9",
+          color: newCategoryUnits.includes(u) ? "#fff" : "#000",
+          cursor: "pointer",
+          fontSize: 12
+        }}
+      >
+        {u}
+      </button>
+    ))}
+  </div>
+</div>
               <Field label="Category Name" req ch={<Inp placeholder="e.g. Antibiotic, Vitamin…" value={newCat} onChange={e => setNewCat(e.target.value)} />} />
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                 {cats.map(c => (
@@ -1151,7 +1298,8 @@ useEffect(() => {
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 8, borderTop: `1px solid ${P.muted}` }}>
                 <Btn ch="Cancel" v="ghost" onClick={() => setCatModal(false)} />
-                <Btn ch="Add" onClick={() => {
+                <Btn ch="Add"
+                 onClick={() => {
                   if (!newCat.trim()) return;
                   setCats(p => [...p, newCat.trim()]);
                   if (editMed) setEditMed({ ...editMed, category: newCat.trim() });
@@ -1207,7 +1355,7 @@ export const SalesRanking = () => {
   useEffect(() => {
     (async () => {
       try {
-        const r = await API.get("/dashboard/summary");
+        const r = await API.get("/medicines");
         setMeds(r.data.medicines || []);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }

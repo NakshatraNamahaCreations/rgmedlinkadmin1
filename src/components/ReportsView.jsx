@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { saveAs } from "file-saver";
+import { useNavigate } from "react-router-dom";
 import API from "../api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -53,8 +54,36 @@ const ReportsView = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const exportRef = useRef(null);
+  const navigate = useNavigate();
+
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   const t_ = useCallback((m, t = "ok") => { setToast({ m, t }); setTimeout(() => setToast(null), 3500); }, []);
+
+
+  useEffect(() => {
+  setCurrentPage(1);
+}, [search, dateFilter, customFrom, customTo]);
+
+  useEffect(() => {
+  const t = setTimeout(() => setSearch(searchInput), 400);
+  return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const hasFilters = dateFilter !== "all" || searchInput;
+
+  const clearAll = () => {
+    setDateFilter("all");
+    setCustomFrom("");
+    setCustomTo("");
+    setSearchInput("");
+    setSearch("");
+  };
 
   useEffect(() => { setCurrentPage(1); }, [tab]);
   useEffect(() => {
@@ -189,17 +218,76 @@ const ReportsView = () => {
   }), [salesData, inventoryData, ordersTable, revenueData]);
 
   const tbl = tableConfig[tab];
-  const totalPages = Math.ceil(tbl.data.length / PER_PAGE);
-  const paginated = useMemo(() => tbl.data.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE), [tbl.data, currentPage]);
 
+  const filteredData = useMemo(() => {
+let data = [...tbl.data];
+
+  // 🔍 Search
+  if (search) {
+    data = data.filter(item =>
+      JSON.stringify(item).toLowerCase().includes(search.toLowerCase())
+    );
+  }
+
+  // 📅 Date filter
+if (dateFilter !== "all" && tab !== "inventory") {
+    const now = new Date();
+
+    data = data.filter(item => {
+      const itemDate = new Date(item.date);
+      if (isNaN(itemDate)) return true;
+
+      if (dateFilter === "today") {
+        return itemDate.toDateString() === now.toDateString();
+      }
+
+      if (dateFilter === "week") {
+        const last7 = new Date();
+        last7.setDate(now.getDate() - 7);
+        return itemDate >= last7;
+      }
+
+      if (dateFilter === "month") {
+        return (
+          itemDate.getMonth() === now.getMonth() &&
+          itemDate.getFullYear() === now.getFullYear()
+        );
+      }
+
+      if (dateFilter === "year") {
+        return itemDate.getFullYear() === now.getFullYear();
+      }
+
+      if (dateFilter === "custom") {
+        const from = customFrom ? new Date(customFrom) : null;
+        const to = customTo ? new Date(customTo) : null;
+
+        return (
+          (!from || itemDate >= from) &&
+          (!to || itemDate <= to)
+        );
+      }
+
+      return true;
+    });
+  }
+
+  return data;
+}, [tbl.data, search, dateFilter, customFrom, customTo, tab]);
+
+ const totalPages = Math.ceil(filteredData.length / PER_PAGE);
+
+ const paginated = useMemo(() => 
+  filteredData.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE)
+, [filteredData, currentPage]);
   /* ── EXPORT ── */
   const doExport = async (type) => {
     const tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
     if (type === "csv") {
-      const rows = [tbl.columns.join(","), ...tbl.data.map(r => tbl.map(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+      const rows = [tbl.columns.join(","), ...filteredData.map(r => tbl.map(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
       saveAs(new Blob(["\uFEFF" + rows], { type: "text/csv;charset=utf-8" }), `${tab}_report.csv`);
     } else if (type === "excel") {
-      const rows = tbl.data.map(r => {
+      const rows = filteredData.map(r => {
         const vals = tbl.map(r);
         const obj = {};
         tbl.columns.forEach((c, i) => obj[c] = vals[i]);
@@ -225,7 +313,7 @@ const ReportsView = () => {
       doc.text(`${tabLabel} Report`, 14, 15);
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, 14, 22);
-      autoTable(doc, { startY: 28, head: [tbl.columns], body: tbl.data.map(r => tbl.map(r)), styles: { fontSize: 9, cellPadding: 4 }, headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" }, alternateRowStyles: { fillColor: [248, 250, 252] } });
+      autoTable(doc, { startY: 28, head: [tbl.columns], body: filteredData.map(r => tbl.map(r)), styles: { fontSize: 9, cellPadding: 4 }, headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" }, alternateRowStyles: { fillColor: [248, 250, 252] } });
       doc.save(`${tab}_report.pdf`);
     }
     setExportOpen(false);
@@ -321,6 +409,91 @@ const ReportsView = () => {
           );
         })}
       </div>
+      {/* ── FILTER BAR ── */}
+<div style={{
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginTop: 10
+}}>
+
+  {/* SEARCH */}
+  <input
+    type="text"
+    placeholder="Search..."
+    value={searchInput}
+    onChange={(e) => setSearchInput(e.target.value)}
+    style={{
+      padding: "8px 12px",
+      borderRadius: 8,
+      border: "1px solid #E2E8F0",
+      fontSize: 12,
+      minWidth: 380
+    }}
+  />
+
+  {/* DATE FILTER BUTTONS */}
+  
+{tab !== "inventory" &&
+  ["all", "today", "week", "month", "year", "custom"].map(f => (
+    <button
+      key={f}
+      onClick={() => setDateFilter(f)}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 20,
+        border: "1px solid #E2E8F0",
+        background: dateFilter === f ? "#4F46E5" : "#fff",
+        color: dateFilter === f ? "#fff" : "#475569",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 600
+      }}
+    >
+      {f.toUpperCase()}
+    </button>
+  ))
+}
+  
+
+      {/* CUSTOM DATE */}
+      {tab !== "inventory" && dateFilter === "custom" && (
+    <>
+      <input
+        type="date"
+        value={customFrom}
+        onChange={(e) => setCustomFrom(e.target.value)}
+        style={{ padding: 6, borderRadius: 6, border: "1px solid #E2E8F0" }}
+      />
+      <input
+        type="date"
+        value={customTo}
+        onChange={(e) => setCustomTo(e.target.value)}
+        style={{ padding: 6, borderRadius: 6, border: "1px solid #E2E8F0" }}
+      />
+    </>
+  )}
+
+  {/* CLEAR BUTTON */}
+ {tab !== "inventory" && hasFilters && (
+    <button
+      onClick={clearAll}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 20,
+        border: "1px solid #FCA5A5",
+        background: "#FEE2E2",
+        color: "#DC2626",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 600
+      }}
+    >
+      Clear
+    </button>
+  )}
+</div>
 
       {loading ? (
         <div style={{ ...card({ padding: 80 }), textAlign: "center" }}>
@@ -469,16 +642,16 @@ const ReportsView = () => {
                 <span style={{
                   fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
                   background: (activeTab?.color || S.brand) + "12", color: activeTab?.color || S.brand,
-                }}>{tbl.data.length}</span>
+                }}>{filteredData.length}</span>
               </div>
-              {tbl.data.length > 0 && (
+              {filteredData.length > 0 && (
                 <span style={{ fontSize: 12, color: S.ink4 }}>
-                  {(currentPage - 1) * PER_PAGE + 1}–{Math.min(currentPage * PER_PAGE, tbl.data.length)} of {tbl.data.length}
+                 {(currentPage - 1) * PER_PAGE + 1}–{Math.min(currentPage * PER_PAGE, filteredData.length)} of {filteredData.length}
                 </span>
               )}
             </div>
 
-            {tbl.data.length === 0 ? (
+            {filteredData.length === 0 ? (
               <div style={{ padding: 60, textAlign: "center" }}>
                 <div style={{ width: 48, height: 48, borderRadius: 12, background: S.subtle, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
                   <Ic d={PATHS.chart} s={20} c={S.ink4} />
@@ -504,17 +677,50 @@ const ReportsView = () => {
                       {paginated.map((r, i) => {
                         const cells = tbl.map(r);
                         return (
-                          <tr key={i} style={{ borderBottom: `1px solid ${S.border}`, transition: "background .1s" }}
-                            onMouseEnter={e => e.currentTarget.style.background = S.bg}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            {cells.map((v, j) => (
-                              <td key={j} style={tdS}>
-                                {tbl.statusCol != null && j === tbl.statusCol ? <StatusChip label={v} />
-                                  : j === 0 ? <span style={{ fontWeight: 600, color: S.ink2 }}>{v}</span>
-                                  : v}
-                              </td>
-                            ))}
-                          </tr>
+                          <tr
+                            key={i}
+                            style={{
+                              borderBottom: `1px solid ${S.border}`,
+                              transition: "background .1s",
+                              cursor:
+                                tab === "inventory" || tab === "orders"
+                                  ? "pointer"
+                                  : "default",
+                            }}
+                            onClick={() => {
+                              if (tab === "inventory") {
+                                navigate("/inventory", {
+                                  state: { medicineName: cells[0] },
+                                });
+                              }
+
+                              if (tab === "orders") {
+                                navigate("/orders", {
+                                  state: { orderId: cells[0] },
+                                });
+                              }
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = "#EEF2FF")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = "transparent")
+                            }
+                          >
+                          {cells.map((v, j) => (
+                            <td key={j} style={tdS}>
+                              {tbl.statusCol != null && j === tbl.statusCol ? (
+                                <StatusChip label={v} />
+                              ) : j === 0 ? (
+                                <span style={{ fontWeight: 600, color: S.ink2 }}>
+                                  {v}
+                                </span>
+                              ) : (
+                                v
+                              )}
+                            </td>
+                          ))}
+                        </tr>
                         );
                       })}
                     </tbody>

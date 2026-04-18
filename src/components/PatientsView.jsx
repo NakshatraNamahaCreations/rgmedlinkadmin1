@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import API from "../api";
 import { Ic, PATHS, Modal, Btn, Inp, Sel, Toast } from "./Styles";
 import { fDate, fCur } from "../data/MasterData";
-import { useNavigate } from "react-router-dom";
+import { useNavigate , useLocation} from "react-router-dom";
 
 /* ── TOKENS ───────────────────────────────────────────────────── */
 const S = {
@@ -57,6 +57,40 @@ const INDIAN_STATES = [
   "Ladakh","Andaman and Nicobar Islands","Dadra and Nagar Haveli and Daman and Diu","Lakshadweep",
 ];
 
+
+const transformOrder = (o) => {
+  const items = o.items || [];
+
+  const calculatedSubtotal = items.reduce(
+    (sum, m) => sum + (m.subtotal || 0),
+    0
+  );
+
+  const maxDuration = Math.max(
+    ...items.map((m) => m.duration || 0),
+    0
+  );
+
+  let calculatedExpiry = null;
+  if (o.prescription?.start && maxDuration > 0) {
+    const start = new Date(o.prescription.start);
+    start.setDate(start.getDate() + maxDuration);
+    calculatedExpiry = start;
+  }
+
+  return {
+    id: o._id,
+    rxId: o.prescription?.rxId || "—",
+    doctor: o.prescription?.doctor || "—",
+    start: o.prescription?.start,
+    expiry: calculatedExpiry,
+    total: o.totalAmount || 0,
+    payStatus: o.paymentStatus,
+    ordStatus: o.orderStatus,
+    orderId: o.orderId,
+    meds: items,
+  };
+};
 
 
 const PER_PAGE = 5;
@@ -120,7 +154,7 @@ const enrichWithOrders = (patients, orders) => {
     const isActive = p.isActive ?? true;
     const rxCount = pOrders.filter(o => o.prescription?.rxId).length;
     const doctors = [...new Set(pOrders.map(o => o.prescription?.doctor).filter(Boolean))];
-    return { ...p, orders: sorted, totalSpend, outstanding, lastOrder, daysSinceLast, isActive, rxCount, doctors };
+    return { ...p, orders: sorted, totalSpend, outstanding, lastOrder,rxCount, daysSinceLast, isActive,  doctors };
   });
 };
 
@@ -129,7 +163,7 @@ const PatientsView = () => {
   const [patients, setPatients] = useState([]);       // current page enriched
   const [totalPatients, setTotalPatients] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  
+  const [formError, setFormError] = useState("");
   const [stats, setStats] = useState({ total: 0, newThisMonth: 0, growthPct: 0, withPrescriptions: 0, gender: { male: 0, female: 0, other: 0 } });
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState(""); // raw input (immediate)
@@ -140,10 +174,27 @@ const PatientsView = () => {
   const [confirm, setConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-
+const location = useLocation();
+const highlightPatientName = location.state?.patientName;
   const fetchIdRef = useRef(0); // guard stale responses
+const navigate = useNavigate();
+
 
   const t_ = useCallback((m, t = "ok") => { setToast({ m, t }); setTimeout(() => setToast(null), 3000); }, []);
+
+
+  useEffect(() => {
+  if (!highlightPatientName || !patients.length) return;
+
+  const found = patients.find(
+    p => p.name === highlightPatientName
+  );
+
+  if (found) {
+    setSelected(found); // ✅ OPEN MODAL
+  }
+}, [patients, highlightPatientName]);
+
 
   /* ── Debounce search input by 400ms ── */
   useEffect(() => {
@@ -217,6 +268,8 @@ useEffect(() => {
   }
 }, [totalPages]);
 
+
+   
 const fetchPage = async () => {
   setLoading(true);
   const id = ++fetchIdRef.current;
@@ -227,50 +280,69 @@ const fetchPage = async () => {
 
     const raw = pRes.data.data || [];
 
-    // ✅ format patients directly (no extra API)
-const formatted = raw
-  .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) // ⭐ ADD THIS
-  .map(p => {
-  const orders = p.orders || [];
+    const formatted = raw
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(p => {
+        const orders = p.orders || [];
 
-  // ✅ CALCULATE TOTAL SPEND
-  const totalSpend = orders.reduce(
-    (sum, o) => sum + (o.totalAmount || 0),
-    0
-  );
+        // ✅ TOTAL SPEND
+        const totalSpend = orders.reduce(
+          (sum, o) => sum + (o.totalAmount || 0),
+          0
+        );
 
-  // ✅ ACTIVE STATUS
-  const latestOrder = [...orders].sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  )[0];
+        // ✅ OUTSTANDING (FIXED - inside map)
+        const outstanding = orders
+          .filter(o => o.paymentStatus !== "Paid")
+          .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-  const daysSinceLast = latestOrder
-    ? Math.floor((new Date() - new Date(latestOrder.createdAt)) / 86400000)
-    : null;
+        // ✅ RX COUNT (IMPORTANT)
+        const rxCount = orders.filter(o => o.prescription?.rxId).length;
 
-  const isActive = p.isActive ?? true;
+        // ✅ LATEST ORDER
+        const latestOrder = [...orders].sort(
+          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+        )[0];
 
-  return {
-    ...p,
+        const isActive = p.isActive ?? true;
 
-address: p.address?.fullAddress || latestOrder?.addressDetails?.fullAddress || "--",
-city: p.address?.city || latestOrder?.addressDetails?.city || "--",
-state: p.address?.state || latestOrder?.addressDetails?.state || "--",
-pincode: p.address?.pincode || latestOrder?.addressDetails?.pincode || "--",
+        return {
+          ...p,
 
-    secondaryPhone:
-      p.secondaryPhone ||
-      latestOrder?.patientDetails?.secondaryPhone,
+          address:
+            p.address?.fullAddress ||
+            latestOrder?.addressDetails?.fullAddress ||
+            "--",
 
-    // ✅ ADD THESE
-    orders,
-    totalSpend,
-    isActive,
-  };
-});
+          city:
+            p.address?.city ||
+            latestOrder?.addressDetails?.city ||
+            "--",
 
-   
-  setPatients(formatted);
+          state:
+            p.address?.state ||
+            latestOrder?.addressDetails?.state ||
+            "--",
+
+          pincode:
+            p.address?.pincode ||
+            latestOrder?.addressDetails?.pincode ||
+            "--",
+
+          secondaryPhone:
+            p.secondaryPhone ||
+            latestOrder?.patientDetails?.secondaryPhone,
+
+          // ✅ FINAL DATA
+          orders,
+          totalSpend,
+          outstanding,
+          rxCount,
+          isActive,
+        };
+      });
+
+    setPatients(formatted);
 
   } catch (err) {
     if (id !== fetchIdRef.current) return;
@@ -282,10 +354,36 @@ pincode: p.address?.pincode || latestOrder?.addressDetails?.pincode || "--",
 };
 
 const save = async () => {
-  if (!editPat.name?.trim()) return t_("Patient name is required", "err");
+
+  // =========================
+  // ✅ VALIDATIONS (IMPROVED)
+  // =========================
+  if (!editPat.name?.trim()) {
+    return t_("Patient name is required", "err");
+  }
 
   if (!editPat.primaryPhone || !/^[0-9]{10}$/.test(editPat.primaryPhone)) {
-    return t_("Valid primary phone required", "err");
+    return t_("Valid 10-digit primary phone required", "err");
+  }
+
+  if (editPat.secondaryPhone && !/^[0-9]{10}$/.test(editPat.secondaryPhone)) {
+    return t_("Secondary phone must be 10 digits", "err");
+  }
+
+  if (!editPat.gender) {
+    return t_("Please select gender", "err");
+  }
+
+  if (!editPat.age || editPat.age <= 0) {
+    return t_("Valid age is required", "err");
+  }
+
+  if (editPat.pincode && !/^[0-9]{6}$/.test(editPat.pincode)) {
+    return t_("Pincode must be 6 digits", "err");
+  }
+
+  if (!editPat.city && !editPat.address) {
+    return t_("Please enter at least city or address", "err");
   }
 
   try {
@@ -294,33 +392,30 @@ const save = async () => {
     // =========================
     // ✅ CREATE / UPDATE PATIENT
     // =========================
-    if (editPat._id) {
-      await API.put(`/patient-details/${editPat._id}`, {
-        name: editPat.name,
-        primaryPhone: editPat.primaryPhone,
-        secondaryPhone: editPat.secondaryPhone,
-        age: editPat.age,
-        gender: editPat.gender,
-        email: editPat.email,
-      });
+    const payload = {
+      name: editPat.name.trim(),
+      primaryPhone: editPat.primaryPhone,
+      secondaryPhone: editPat.secondaryPhone || "",
+      age: Number(editPat.age),
+      gender: editPat.gender,
+      email: editPat.email?.trim() || "",
+    };
 
+    if (editPat._id) {
+      // UPDATE
+      await API.put(`/patient-details/${editPat._id}`, payload);
       patientId = editPat._id;
 
     } else {
-     const res = await API.post("/patient-details/create", {
-  name: editPat.name,
-  primaryPhone: editPat.primaryPhone,
-  secondaryPhone: editPat.secondaryPhone,
-  age: editPat.age,
-  gender: editPat.gender,
-  email: editPat.email,
-  userId: "9876543210",
-});
+      // CREATE
+      const res = await API.post("/patient-details/create", {
+        ...payload,
+        userId: "9876543210",
+      });
 
-// ✅ ADD THIS CHECK
-if (!res.data.success) {
-  return t_(res.data.message || "Patient creation failed", "err");
-}
+      if (!res.data?.success) {
+        return t_(res.data?.message || "Patient creation failed", "err");
+      }
 
       patientId = res.data?.data?._id;
     }
@@ -328,36 +423,43 @@ if (!res.data.success) {
     // =========================
     // ✅ ADDRESS SAVE / UPDATE
     // =========================
-    if (editPat.address || editPat.city || editPat.state || editPat.pincode) {
+    const hasAddress =
+      editPat.address ||
+      editPat.city ||
+      editPat.state ||
+      editPat.pincode;
 
-     if (editPat.addressId) {
-  await API.put(`/address/update/${editPat.addressId}`, {
-    fullAddress: editPat.address,
-    city: editPat.city,
-    state: editPat.state,
-    pincode: editPat.pincode,
-  });
+    if (hasAddress) {
 
-  // ✅ ADD THIS (VERY IMPORTANT)
-  if (patientId) {
-    await API.put(`/patient-details/${patientId}`, {
-      addressId: editPat.addressId,
-    });
-  }
-} else {
-        // CREATE
+      const addressPayload = {
+        fullAddress: editPat.address || "",
+        city: editPat.city || "",
+        state: editPat.state || "",
+        pincode: editPat.pincode || "",
+      };
+
+      if (editPat.addressId) {
+        // UPDATE ADDRESS
+        await API.put(`/address/update/${editPat.addressId}`, addressPayload);
+
+        // LINK AGAIN (SAFE)
+        if (patientId) {
+          await API.put(`/patient-details/${patientId}`, {
+            addressId: editPat.addressId,
+          });
+        }
+
+      } else {
+        // CREATE ADDRESS
         const addressRes = await API.post("/address/save", {
           userId: "9876543210",
-          fullAddress: editPat.address,
-          city: editPat.city,
-          state: editPat.state,
-          pincode: editPat.pincode,
+          ...addressPayload,
           isDefault: false,
         });
 
         const addressId = addressRes.data?.data?._id;
 
-        // LINK
+        // LINK ADDRESS
         if (patientId && addressId) {
           await API.put(`/patient-details/${patientId}`, {
             addressId,
@@ -366,8 +468,10 @@ if (!res.data.success) {
       }
     }
 
-    // ✅ SUCCESS MESSAGE (FINAL)
-    t_(`${editPat.name} ${editPat._id ? "updated" : "added"}`);
+    // =========================
+    // ✅ SUCCESS
+    // =========================
+    t_(`${editPat.name} ${editPat._id ? "updated" : "added"} successfully`);
 
     setEditPat(null);
     await fetchPage();
@@ -406,7 +510,7 @@ if (filter === "Male") return p.gender === "Male";
 if (filter === "Female") return p.gender === "Female";
 if (filter === "Active") return p.isActive;
 if (filter === "Inactive") return !p.isActive;
-if (filter === "WithRx") return p.orders && p.orders.length > 0;
+if (filter === "WithRx") return p.rxCount > 0;
 return true;
 });
 
@@ -760,7 +864,7 @@ const paginatedPatients = filteredPatients.slice(
       {selected && (
         <Modal
           title={selected.name}
-          sub={`${selected.patientId} | ${selected.phone} | ${selected.orders?.length || 0} orders`}
+         sub={`${selected.patientId} | ${selected.primaryPhone} | ${selected.orders?.length || 0} orders`}
           w={1020}
           onClose={() => setSelected(null)}
           ch={<PatientProfile patient={selected} onClose={() => setSelected(null)} />}
@@ -798,8 +902,13 @@ const Field = ({ label, value, onChange, placeholder, type = "text", maxLength }
 const PatientProfile = ({ patient: p, onClose }) => {
   const [activeTab, setActiveTab] = useState("details");
   const [fg, bg] = avatarColor(p.name || "U");
+  const navigate = useNavigate();
+  const prescriptions = (p.orders || [])
+  .filter(o => o.prescription?.rxId)
+  .map(transformOrder);
 
   return (
+    <>
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* PROFILE HEADER */}
@@ -823,11 +932,11 @@ const PatientProfile = ({ patient: p, onClose }) => {
           {/* EDIT BUTTON */}
           <button
             onClick={() => {
-  onClose(); // ✅ CLOSE VIEW MODAL FIRST
-  setTimeout(() => {
-    window.dispatchEvent(new CustomEvent("editPatient", { detail: p }));
-  }, 200); // small delay for smooth UX
-}}
+        onClose(); // ✅ CLOSE VIEW MODAL FIRST
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("editPatient", { detail: p }));
+          }, 200); // small delay for smooth UX
+        }}
             style={{
               padding: "6px 12px",
               borderRadius: 6,
@@ -924,7 +1033,24 @@ const PatientProfile = ({ patient: p, onClose }) => {
               <tbody>
                 {p.orders.map((o, i) => (
                   <tr key={o._id} style={{ borderBottom: `1px solid ${S.border}`, background: i % 2 === 0 ? "#fff" : S.bg }}>
-                    <td style={{ padding: "11px 14px", fontWeight: 700, color: S.brand, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{o.orderId}</td>
+                    <td style={tdStyleMono}>
+                   <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate("/orders", {
+                      state: { orderId: o.orderId }
+                    });
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    
+                    color: S.brand,
+                    fontWeight: 700
+                  }}
+                >
+                  {o.orderId}
+                </span>
+                  </td>
                     <td style={{ padding: "11px 14px", color: S.muted, whiteSpace: "nowrap" }}>{fDate(o.createdAt)}</td>
                     <td style={{ padding: "11px 14px", color: S.ink2 }}>{o.prescription?.doctor || "--"}</td>
                     <td style={{ padding: "11px 14px", color: S.ink2 }}>{o.prescription?.meds?.length || 0} items</td>
@@ -942,7 +1068,7 @@ const PatientProfile = ({ patient: p, onClose }) => {
       {/* PRESCRIPTION HISTORY */}
       {activeTab === "prescriptions" && (
         <div style={{ border: `1px solid ${S.border}`, borderRadius: 10, overflow: "hidden" }}>
-          {p.orders?.filter(o => o.prescription?.rxId).length === 0 ? (
+          {prescriptions.length === 0 ? (
             <div style={{ padding: 36, textAlign: "center", color: S.muted }}>No prescriptions found</div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -953,50 +1079,111 @@ const PatientProfile = ({ patient: p, onClose }) => {
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {p.orders.filter(o => o.prescription?.rxId).map((o, i) => {
-                  const expiry = o.prescription.expiry;
-                  const expired = expiry && new Date(expiry) <= new Date();
-                  const expiring = expiry && !expired && Math.ceil((new Date(expiry) - new Date()) / 86400000) <= 7;
-                  const expiryColor = expired ? S.red : expiring ? S.amber : S.green;
-                  const expiryBg    = expired ? S.redBg : expiring ? S.amberBg : S.greenBg;
-                  return (
-                    <tr key={o._id} style={{ borderBottom: `1px solid ${S.border}`, background: i % 2 === 0 ? "#fff" : S.bg }}>
-                      <td style={{ padding: "11px 14px", fontWeight: 700, color: S.purple, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{o.prescription.rxId}</td>
-                      <td style={{ padding: "11px 14px", color: S.ink2 }}>{o.prescription.doctor || "--"}</td>
-                      <td style={{ padding: "11px 14px", color: S.muted, whiteSpace: "nowrap" }}>{fDate(o.prescription.start)}</td>
-                      <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: expiryColor, background: expiryBg, padding: "3px 8px", borderRadius: 99 }}>
-                          {expiry ? fDate(expiry) : "--"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "11px 14px" }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: expiryColor }}>
-                          {expired ? "Expired" : expiring ? `Expires in ${Math.ceil((new Date(expiry) - new Date()) / 86400000)}d` : "Active"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "11px 14px" }}>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {(o.prescription.meds || []).slice(0, 3).map((m, mi) => (
-                            <span key={mi} style={{ fontSize: 10, background: S.bg, border: `1px solid ${S.border}`, padding: "2px 7px", borderRadius: 99, color: S.ink2, fontWeight: 600 }}>
-                              {m.medicine?.name || "--"}
-                            </span>
-                          ))}
-                          {(o.prescription.meds?.length || 0) > 3 && (
-                            <span style={{ fontSize: 10, color: S.muted }}>+{o.prescription.meds.length - 3} more</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: "11px 14px", fontWeight: 600, color: S.ink }}>{fCur(o.totalAmount)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+
+
+          <tbody>
+          {prescriptions.map((r, i) => {
+            const expiry = r.expiry;
+
+            const expired = expiry && new Date(expiry) <= new Date();
+            const expiring =
+              expiry &&
+              !expired &&
+              Math.ceil((new Date(expiry) - new Date()) / 86400000) <= 7;
+
+            const expiryColor = expired ? S.red : expiring ? S.amber : S.green;
+            const expiryBg = expired ? S.redBg : expiring ? S.amberBg : S.greenBg;
+
+            return (
+              <tr
+                key={r.id}
+                style={{
+                  borderBottom: `1px solid ${S.border}`,
+                  background: i % 2 === 0 ? "#fff" : S.bg,
+                }}
+              >
+                {/* RX ID */}
+              <td style={tdStyleMono}>
+         <span
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/prescriptions", {
+              state: { rxId: r.rxId }
+            });
+          }}
+          style={{
+            cursor: "pointer",
+            color: S.purple
+          }}
+        >
+          {r.rxId}
+        </span>
+        </td>
+
+        {/* DOCTOR */}
+        <td style={tdStyle}>{r.doctor}</td>
+
+        {/* START */}
+        <td style={tdStyle}>{r.start ? fDate(r.start) : "--"}</td>
+
+        {/* EXPIRY */}
+        <td style={tdStyle}>
+          <span
+            style={{
+              color: expiryColor,
+              background: expiryBg,
+              padding: "4px 10px",
+              borderRadius: 20,
+              fontWeight: 600,
+              fontSize: 12,
+            }}
+          >
+            {expiry ? fDate(expiry) : "--"}
+          </span>
+        </td>
+
+        {/* STATUS */}
+        <td style={tdStyle}>
+          <span
+            style={{
+              fontWeight: 600,
+              color: expired
+                ? S.red
+                : expiring
+                ? S.amber
+                : S.green,
+            }}
+          >
+            {expired
+              ? "Expired"
+              : expiring
+              ? "Expiring"
+              : "Active"}
+          </span>
+        </td>
+
+        {/* MEDICINES */}
+        <td style={tdStyle}>
+          <span style={{ fontWeight: 600 }}>
+            {r.meds?.length || 0}
+          </span>{" "}
+          <span style={{ color: S.muted }}>items</span>
+        </td>
+
+        {/* TOTAL */}
+        <td style={tdStyleBold}>{fCur(r.total)}</td>
+      </tr>
+      
+        );
+      })}
+    </tbody>
             </table>
           )}
         </div>
       )}
     </div>
+
+    </>
   );
 };
 
@@ -1014,6 +1201,43 @@ const DetailCard = ({ label, value }) => (
     <div style={{ fontSize: 14, fontWeight: 600, color: S.ink }}>{value}</div>
   </div>
 );
+
+const OrderDetailsView = ({ order }) => {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={card()}>
+        <h4>Customer</h4>
+        <p>{order.patientDetails?.name}</p>
+        <p>{order.patientDetails?.phone}</p>
+      </div>
+
+      <div style={card()}>
+        <h4>Medicines</h4>
+        {order.items?.map((m, i) => (
+          <div key={i}>{m.name} × {m.qty}</div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const PrescriptionView = ({ rx }) => {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={card()}>
+        <h4>Doctor</h4>
+        <p>{rx.doctor}</p>
+      </div>
+
+      <div style={card()}>
+        <h4>Medicines</h4>
+        {rx.meds?.map((m, i) => (
+          <div key={i}>{m.name} ({m.qty})</div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const StatBox = ({ icon, color, label, value }) => (
   <div style={{ background: S.bg, border: `1px solid ${S.border}`, borderRadius: 10, padding: "14px 16px" }}>
@@ -1052,5 +1276,24 @@ const pageBtn = (active) => ({
   background: active ? S.brand : "#fff", color: active ? "#fff" : S.ink2,
   fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
 });
+
+const tdStyle = {
+  padding: "12px 14px",
+  color: "#334155",
+  verticalAlign: "middle",
+};
+
+const tdStyleBold = {
+  ...tdStyle,
+  fontWeight: 700,
+  color: "#0F172A",
+};
+
+const tdStyleMono = {
+  ...tdStyle,
+  fontFamily: "'DM Mono', monospace",
+  fontWeight: 600,
+  color: "#06549d",
+};
 
 export default PatientsView;

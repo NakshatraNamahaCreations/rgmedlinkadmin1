@@ -20,6 +20,8 @@ const S = {
 export default function NewOrderForm({ onSave, onClose }) {
   const [patients, setPatients] = useState([]);
   const [medicines, setMedicines] = useState([]);
+  const [medicineSearch, setMedicineSearch] = useState("");
+  const [medicineDropOpen, setMedicineDropOpen] = useState(null);
 
   const [patient, setPatient] = useState("");
   const [doctor, setDoctor] = useState("");
@@ -32,6 +34,13 @@ export default function NewOrderForm({ onSave, onClose }) {
   const [rows, setRows] = useState([
     { medicine: "", duration: 30, freq: { m: 1, a: 0, n: 1 } },
   ]);
+
+  const filteredMedicines = medicineSearch
+  ? medicines.filter((m) =>
+      m.name?.toLowerCase().includes(medicineSearch.toLowerCase())
+    )
+  : medicines;
+
 
   useEffect(() => {
     API.get("/patient-details/all").then((r) => setPatients(r.data.data || [])).catch(() => {});
@@ -59,7 +68,7 @@ export default function NewOrderForm({ onSave, onClose }) {
     const med = medicines.find((m) => m._id === row.medicine);
     if (!med) return 0;
     const daily = (row.freq.m || 0) + (row.freq.a || 0) + (row.freq.n || 0);
-    return daily * row.duration * med.price;
+    return daily * Number(row.duration || 0) * Number(med.sellingPrice || 0);
   };
 
   const subtotal = rows.reduce((s, r) => s + lineTotal(r), 0);
@@ -67,89 +76,61 @@ export default function NewOrderForm({ onSave, onClose }) {
   const total = subtotal + gst - Number(discount || 0);
 
   /* ── SUBMIT ── */
-    const handlePlaceOrder = async () => {
-      if (!patient) {
-        alert("Please select a patient");
-        return;
-      }
+const handlePlaceOrder = async () => {
+  if (!patient) {
+    alert("Please select a patient");
+    return;
+  }
 
-      if (rows.some((r) => !r.medicine)) {
-        alert("Please select a medicine for each row");
-        return;
-      }
+  if (rows.some((r) => !r.medicine)) {
+    alert("Please select a medicine for each row");
+    return;
+  }
 
-      try {
-        setSaving(true);
+  try {
+    setSaving(true);
 
-        const selectedPatient = patients.find((p) => p._id === patient);
+    // ✅ Build items (ONLY required fields)
+    const items = rows.map((row) => {
+      const med = medicines.find((m) => m._id === row.medicine);
 
-        // ✅ FIX 1: Build proper items
-        const items = rows.map((row) => {
-          const med = medicines.find((m) => m._id === row.medicine);
+      const daily =
+        (row.freq.m || 0) +
+        (row.freq.a || 0) +
+        (row.freq.n || 0);
 
-          const daily =
-            (row.freq.m || 0) +
-            (row.freq.a || 0) +
-            (row.freq.n || 0);
+      const qty = daily * row.duration;
 
-          const qty = daily * row.duration;
-          const price = med?.sellingPrice || med?.price || 0;
+      return {
+        medicineId: med._id,
+        qty,
+        duration: Number(row.duration),
+        freq: row.freq,
+      };
+    });
 
-          return {
-            medicineId: med._id,
-            name: med.name,              // 🔥 REQUIRED
-            qty,
-            duration: Number(row.duration),
-            freq: row.freq,
-            price,
-            unit: med.unit || "tablet",
-            subtotal: qty * price,       // 🔥 REQUIRED
-          };
-        });
-
-        // ✅ FIX 2: totalAmount
-        const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
-
-        // ✅ FIX 3: correct payload
-        const payload = {
-          patient: patient,   // 🔥 NOT patientId
-
-          patientDetails: {
-            patientId: selectedPatient.patientId,
-            name: selectedPatient.name,
-            phone: selectedPatient.primaryPhone,
-            gender: selectedPatient.gender,
-          },
-
-        addressDetails: {
-          fullAddress: selectedPatient?.addressId?.fullAddress || "Default Address",
-          city: selectedPatient?.addressId?.city || "Mysore",
-          state: selectedPatient?.addressId?.state || "Karnataka",
-          pincode: selectedPatient?.addressId?.pincode || "570001",
-        },
-
-          items,              // 🔥 FULL ITEMS
-          totalAmount,
-
-         paymentStatus: "Pending",  // admin flow
-          orderStatus: "Created",
-        };
-
-        console.log("FINAL FIXED PAYLOAD", payload);
-
-        const res = await API.post("/orders", payload); // ✅ use correct route
-
-        alert("Order created successfully ✅");
-
-        onClose();
-
-      } catch (err) {
-        console.error(err.response?.data || err.message);
-        alert(err.response?.data?.message || "Order failed");
-      } finally {
-        setSaving(false);
-      }
+    // ✅ CLEAN PAYLOAD (ONLY WHAT BACKEND NEEDS)
+    const payload = {
+      patientId: patient,
+      items,
     };
+
+    console.log("FINAL PAYLOAD", payload);
+
+    // ✅ Correct API
+    const res = await API.post("/orders/admin-create", payload);
+
+    alert("Order created successfully ✅");
+
+    onClose();
+
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    alert(err.response?.data?.message || "Order failed");
+  } finally {
+    setSaving(false);
+  }
+};
 
   /* ── PATIENT SEARCH FILTER ── */
   const filteredPatients = patientSearch
@@ -400,18 +381,91 @@ export default function NewOrderForm({ onSave, onClose }) {
                 >
                   <div>
                     <Label text="Medicine" />
-                    <select
-                      value={row.medicine}
-                      onChange={(e) => updateRow(i, "medicine", e.target.value)}
-                      style={inputStyle}
-                    >
-                      <option value="">Select medicine…</option>
-                      {medicines.map((m) => (
-                        <option key={m._id} value={m._id}>
-                          {m.name} — ₹{m.price}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ position: "relative" }}>
+                      <div
+                        onClick={() =>
+                          setMedicineDropOpen((prev) => (prev === i ? null : i))
+                        }
+                        style={{
+                          ...inputStyle,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span style={{ color: row.medicine ? S.ink : S.muted }}>
+                          {row.medicine
+                            ? medicines.find((m) => m._id === row.medicine)?.name
+                            : "Search & select medicine…"}
+                        </span>
+                        <Ic d={PATHS.box} s={14} c={S.muted} />
+                      </div>
+
+                      {medicineDropOpen === i && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            background: "#fff",
+                            border: `1px solid ${S.border}`,
+                            borderRadius: 10,
+                            zIndex: 50,
+                            marginTop: 4,
+                            boxShadow: "0 8px 24px rgba(15,23,42,.12)",
+                          }}
+                        >
+                          {/* SEARCH INPUT */}
+                          <div style={{ padding: 8, borderBottom: `1px solid ${S.border}` }}>
+                            <input
+                              autoFocus
+                              placeholder="Search medicine..."
+                              value={medicineSearch}
+                              onChange={(e) => setMedicineSearch(e.target.value)}
+                              style={{
+                                width: "100%",
+                                border: "none",
+                                outline: "none",
+                                fontSize: 13,
+                              }}
+                            />
+                          </div>
+
+                          {/* LIST */}
+                          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                            {filteredMedicines.map((m) => (
+                              <div
+                                key={m._id}
+                                onClick={() => {
+                                  updateRow(i, "medicine", m._id);
+                                  setMedicineDropOpen(null);
+                                  setMedicineSearch("");
+                                }}
+                                style={{
+                                  padding: "10px 14px",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                  borderBottom: `1px solid ${S.border}`,
+                                }}
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.background = "#F8FAFC")
+                                }
+                                onMouseLeave={(e) =>
+                                  (e.currentTarget.style.background = "transparent")
+                                }
+                              >
+                                <div style={{ fontWeight: 600 }}>{m.name}</div>
+                                <div style={{ fontSize: 11, color: S.muted }}>
+                                  ₹{m.sellingPrice}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label text="Duration (days)" />
@@ -489,7 +543,7 @@ export default function NewOrderForm({ onSave, onClose }) {
                   {daily > 0 && row.duration > 0 && (
                     <p style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>
                       {daily} tablet{daily > 1 ? "s" : ""}/day × {row.duration} days
-                      {med ? ` × ₹${med.price} = ₹${line.toLocaleString("en-IN")}` : ""}
+                      {med ? ` × ₹${med.sellingPrice} = ₹${line.toLocaleString("en-IN")}` : ""}
                     </p>
                   )}
                 </div>
@@ -582,7 +636,7 @@ export default function NewOrderForm({ onSave, onClose }) {
                   </span>
                 </div>
                 <p style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>
-                  {qty} qty × ₹{med.price}
+                  {qty} qty × ₹{med.sellingPrice}
                 </p>
               </div>
             );

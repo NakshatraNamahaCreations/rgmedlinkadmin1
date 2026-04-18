@@ -1,0 +1,145 @@
+    /* MAIN */
+.bulk-container {
+  padding: 30px;
+  background: #f6f8fc;
+  min-height: 100vh;
+  font-family: "Inter", sans-serif;
+}
+
+/* HEADER */
+.bulk-header {
+  display: flex;
+  align-items: center;
+  gap: 50px; /* control spacing */
+}
+
+.bulk-header h2 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.bulk-header p {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* UPLOAD BUTTON */
+.upload-btn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  transition: 0.3s;
+}
+
+.upload-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* CARD */
+.bulk-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+}
+
+/* CARD HEADER */
+.bulk-card-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+/* ERROR BOX */
+.error-box {
+  background: #fff1f2;
+  border-left: 4px solid #ef4444;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+/* TABLE */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bulk-table th {
+  text-align: left;
+  padding: 12px;
+  background: #f9fafb;
+  font-size: 13px;
+}
+
+.bulk-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+/* INPUT */
+.input {
+  width: 100%;
+  padding: 7px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.input:focus {
+  border-color: #6366f1;
+  outline: none;
+}
+
+/* STATUS */
+.status {
+  background: #ecfdf5;
+  color: #059669;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+/* TYPE */
+.type.new {
+  color: green;
+  font-weight: 600;
+}
+
+.type.update {
+  color: orange;
+  font-weight: 600;
+}
+
+/* ACTION BUTTONS */
+.actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: #6366f1;
+  color: white;
+}
+
+.btn.danger {
+  background: #ef4444;
+  color: white;
+}

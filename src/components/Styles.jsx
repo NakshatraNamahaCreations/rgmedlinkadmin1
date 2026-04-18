@@ -214,11 +214,12 @@ export const Pill = ({ v, max, color, h = 8 }) => (
 
 export const Toast = ({ msg, type, onClose }) => {
   const map = {
-    ok: { bg: C.green, icon: PATHS.check },
-    err: { bg: C.red, icon: PATHS.x },
-    warn: { bg: C.amber, icon: PATHS.alert },
+    ok: { bg: C.green },
+    err: { bg: C.red },
+    warn: { bg: C.amber },
   };
-  const t = map[type] || { bg: C.blue, icon: PATHS.alert };
+  const t = map[type] || { bg: C.blue };
+
   return (
     <div
       className="si"
@@ -231,23 +232,27 @@ export const Toast = ({ msg, type, onClose }) => {
         color: "#fff",
         borderRadius: 14,
         padding: "14px 20px",
-        boxShadow: `0 8px 32px ${t.bg}40, 0 2px 8px rgba(0,0,0,0.15)`,
+        boxShadow: `0 8px 32px ${t.bg}40`,
         fontSize: 13,
         fontWeight: 600,
         display: "flex",
         alignItems: "center",
         gap: 10,
         maxWidth: 380,
-        border: "1px solid rgba(255,255,255,0.2)",
       }}
     >
-      <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 8, padding: 5, display: "flex", flexShrink: 0 }}>
-        <Ic d={t.icon} s={14} c="#fff" />
-      </div>
       <span style={{ flex: 1 }}>{msg}</span>
+
       <button
         onClick={onClose}
-        style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", opacity: 0.7, display: "flex", padding: 2 }}
+        style={{
+          background: "none",
+          border: "none",
+          color: "#fff",
+          cursor: "pointer",
+          opacity: 0.7,
+          display: "flex",
+        }}
       >
         <Ic d={PATHS.x} s={14} c="#fff" />
       </button>
